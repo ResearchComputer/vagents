@@ -1,0 +1,10 @@
+*.pyc
+.local/
+*.egg-info
+.coverage
+coverage.xml
+pytest-coverage.txt
+htmlcov/
+venv/
+.vscode/
+.env

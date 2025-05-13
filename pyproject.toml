@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v-agents"
+description = "A framework for building scalable and efficient multi-tenant agentic AI systems."
+authors = [
+  { name = "Xiaozhe Yao", email = "askxzyao@gmail.com" }
+]
+dynamic = ["dependencies", "optional-dependencies", "version"]
+
+[project.scripts]
+vagent = "vagents.entrypoints.cli:app"
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["meta/requirements.txt"] }
+optional-dependencies.extra = { file = ["meta/requirements-extra.txt"] }
+optional-dependencies.dev = { file = ["meta/requirements-dev.txt"] }
+optional-dependencies.all = { file = ["meta/requirements-dev.txt", "meta/requirements-extra.txt", "meta/requirements.txt"] }
+version = {attr = "vagents.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["vagents", "vagents.*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]  # directory containing your tests
+norecursedirs = [
+    ".vscode",
+    "__pycache__"
+]
+filterwarnings = [
+    "ignore::DeprecationWarning"
+]
+markers = [
+    "slow: lower-importance tests that take an excessive amount of time",
+    "gpu: tests that require GPU",
+]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--cov=vagents/ --cov-report html --cov-report term --cache-clear --ignore-glob=*/__init__.py"
