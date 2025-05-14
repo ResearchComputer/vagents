@@ -1,3 +1,6 @@
+import asyncio
+from vagents.core import OutResponse
+
 class Node:
     """Base class for all executable graph nodes."""
 
@@ -21,6 +24,38 @@ class ActionNode(Node):
         self.next = next_node
 
     def execute(self, ctx):
+        # If this statement contains an await, handle awaited assignment or fallback
+        if 'await ' in self.source:
+            import re
+            # Match patterns like 'var = await expr'
+            m = re.match(r"(\w+)\s*=\s*await\s+(.+)", self.source)
+            if m:
+                var, expr = m.groups()
+                # Build coroutine that returns the awaited expression
+                async_code = f"async def __node_exec():\n    return await {expr}"
+                exec(async_code, ctx, ctx)
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                result = loop.run_until_complete(ctx["__node_exec"]())
+                del ctx["__node_exec"]
+                # Store result back into context
+                ctx[var] = result
+                return self.next
+            # Fallback for other await statements
+            async_code = "async def __node_exec():\n    " + self.source
+            exec(async_code, ctx, ctx)
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            loop.run_until_complete(ctx["__node_exec"]())
+            del ctx["__node_exec"]
+            return self.next
+        # Normal synchronous execution
         exec(self.code, ctx, ctx)
         return self.next
 

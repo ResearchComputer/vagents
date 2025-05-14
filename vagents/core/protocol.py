@@ -109,4 +109,4 @@ class OutResponse(BaseModel):
     session: Optional[Dict[str, Any]] = None
     metrics: Optional[Metrics] = None
     events: Optional[Dict[str, Any]] = None
-    answer: Optional[Union[str, List["Message"]]] = None
+    output: Optional[Union[str, List["Message"]]] = None

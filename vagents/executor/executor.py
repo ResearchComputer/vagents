@@ -1,5 +1,6 @@
 from .graph import Graph
 from vagents.core import InRequest, OutResponse
+import importlib
 
 
 class GraphExecutor:
@@ -19,6 +20,15 @@ class GraphExecutor:
             for attr_name, attr_value in vars(self.module_instance).items():
                 if attr_name not in self.ctx:  # Avoid overwriting existing keys
                     self.ctx[attr_name] = attr_value
+            # Also include the module's globals (imports, classes) into context
+            module_name = self.module_instance.__class__.__module__
+            try:
+                mod = importlib.import_module(module_name)
+                for name, val in vars(mod).items():
+                    if name not in self.ctx:
+                        self.ctx[name] = val
+            except ImportError:
+                pass
 
         self.graph = graph.optimize()
 
@@ -30,6 +40,7 @@ class GraphExecutor:
             current_ctx[
                 "request"
             ] = request  # Make the request available in the context
+            current_ctx["query"] = request  # Alias to match parameter name in graph execution
 
             node = self.graph.entry
             while node is not None:
@@ -59,3 +70,8 @@ class GraphExecutor:
                 node = executed_node_result
 
             # Assuming the result of the graph execution is stored in current_ctx['__return__']
+            # Append the return value to responses
+            responses.append(current_ctx.get("__return__"))
+         
+        # Return all collected responses
+        return responses
