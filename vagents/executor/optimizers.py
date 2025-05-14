@@ -19,8 +19,9 @@ def optimize_await_sequences(graph):
         var, expr = m.groups()
         seq.append((cur, var, expr))
         cur = cur.next
-    # Only combine if more than one
-    if len(seq) > 1:
+    # Only combine if more than one and variables are unique
+    vars_seq = [var for _, var, _ in seq]
+    if len(seq) > 1 and len(set(vars_seq)) == len(seq):
         exprs = ", ".join(expr for _, _, expr in seq)
         vars_list = ", ".join(var for _, var, _ in seq)
         combined_src = (

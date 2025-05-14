@@ -178,7 +178,8 @@ class LLM:
             logger.warning(
                 "Streaming is not supported with tools. Disabling streaming."
             )
-        return self._async_call_chat(
+        # For non-streaming calls, consume the generator to close the session context
+        gen = self._async_call_chat(
             messages,
             temperature,
             max_tokens,
@@ -188,3 +189,9 @@ class LLM:
             response_format,
             stream=stream,
         )
+        if not stream and not tools:
+            result = None
+            async for chunk in gen:
+                result = chunk
+            return result
+        return gen
