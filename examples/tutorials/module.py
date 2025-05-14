@@ -1,44 +1,50 @@
 import os
 from vagents.core import VModule, VModuleConfig, InRequest, OutResponse, LLM
 from vagents.executor import GraphExecutor, compile_to_graph
+from vagents.managers import LMManager
+from timeit import default_timer as timer
 
 class ChatModule(VModule):
     def __init__(self):
         super().__init__(config=VModuleConfig(enable_async=False))
-        self.llm = LLM(
+        llm = LLM(
             model_name="Qwen/Qwen3-32B",
             base_url=os.environ.get("RC_API_BASE", ""),
             api_key=os.environ.get("RC_API_KEY", ""),
         )
+        self.models = LMManager()
+        self.models.add_model(llm)        
 
     async def forward(self, query: InRequest) -> OutResponse:
-        res = await self.llm([{"role": "user", "content": query.input}])
-        res = await res.__anext__()
+        res = await self.models.call("Qwen/Qwen3-32B", messages=[{"role": "user", "content": query.input}])
+        res2 = await self.models.call("Qwen/Qwen3-32B", [{"role": "user", "content": query.input}])
         return OutResponse(
-            output=res,
+            output=f"{res}\n\n{res2}",
             id=query.id,
             input=query.input,  
             module=query.module,
         )
         
-
     async def cleanup(self, session_id: str):
         pass
 
 if __name__ == "__main__":
     import asyncio
     chat_module = ChatModule()
-    # Example usage
     query = InRequest(
         id="1",
-        input="Hello, how are you?",
+        input="What is the capital of France?",
         module="ChatModule"
     )
+    start = timer()
     response = asyncio.run(chat_module.forward(query))
-    # print(response)
+    end = timer()
+    print(f"Time taken: {end - start} seconds")
     compiled_dr = compile_to_graph(chat_module.forward)
+    print(f"Compiled graph: {compiled_dr}")
     # Pass the deep_research instance to GraphExecutor
     ge = GraphExecutor(compiled_dr, module_instance=chat_module)
+    start = timer()
     outputs = ge.run(
         [
             InRequest(
@@ -48,4 +54,5 @@ if __name__ == "__main__":
             )
         ]
     )
-    print(f"outputs: {outputs}")
+    end = timer()
+    print(f"Time taken for GraphExecutor: {end - start} seconds")

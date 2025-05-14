@@ -1,5 +1,6 @@
 from collections import deque
 from .node import ActionNode, ConditionNode, BreakNode, ReturnNode
+from .optimizers import apply_optimizations
 
 
 class Graph:
@@ -7,9 +8,7 @@ class Graph:
         self.entry = entry
 
     def optimize(self):
-        # Placeholder for graph optimization logic
-        # For now, it does nothing and returns the graph itself
-        return self
+        return apply_optimizations(self)
 
     def __repr__(self):
         if self.entry is None:
