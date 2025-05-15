@@ -1,7 +1,8 @@
 import inspect
+from copy import deepcopy
 from vagents.core import LLM, Message, Tool, parse_function_signature
 from typing import Callable, Union, List, Optional
-from copy import deepcopy
+
 class LMManager:
     def __init__(self):
         self.models = {}
@@ -30,7 +31,8 @@ class LMManager:
         messages = deepcopy(query)
         if isinstance(query, List):
             if query[0].role != "system":
-                messages.insert(0, Message(role="system", content=docstring))
+                messages.insert(
+                    0, Message(role="system", content=docstring))
             else:
                 messages[0].content = docstring
         elif isinstance(query, str):
