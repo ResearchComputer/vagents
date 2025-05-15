@@ -1,11 +1,11 @@
 import inspect
 from copy import deepcopy
 from vagents.core import LLM, Message, Tool, parse_function_signature
-from typing import Callable, Union, List, Optional
+from typing import Callable, Union, List, Optional, Dict
 
 class LMManager:
     def __init__(self):
-        self.models = {}
+        self.models: Dict[str, LLM] = {}
     
     def add_model(self, llm: LLM):
         self.models[llm.model_name] = llm
@@ -14,7 +14,6 @@ class LMManager:
         if model_name not in self.models:
             raise ValueError(f"Model {model_name} not found.")
         res = await self.models[model_name](*args, **kwargs)
-        res = await res.__anext__()
         return res
     
     async def invoke(self, 

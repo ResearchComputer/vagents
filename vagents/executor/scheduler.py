@@ -5,28 +5,30 @@ Provides a VScheduler that wraps GraphExecutor to run multiple requests in paral
 """
 import asyncio
 from typing import List, AsyncIterator
-
 from vagents.executor import GraphExecutor
 from vagents.core import InRequest, OutResponse
 
 class VScheduler:
     """
-    Schedule and execute individual InRequest items in parallel using an underlying
-    GraphExecutor. Emits OutResponse as soon as each request finishes.
+    Schedule and execute individual InRequest items in parallel using an underlying GraphExecutor. Emits OutResponse as soon as each request finishes.
     """
     def __init__(self):
         # Map module names to their GraphExecutor instances
         self._executors = {}
         # Queue for completed OutResponse objects
         self._response_queue = asyncio.Queue()
-
+        # sets for finished requests
+        self._finished_requests = dict()
+        
     async def _run_single(self, req: InRequest) -> OutResponse:
         """
         Offload the synchronous .run([req]) call to a thread pool and return the single result.
         """
         executor = self._executors.get(req.module)
         if executor is None:
-            raise RuntimeError(f"No executor registered for module '{req.module}'")
+            raise RuntimeError(
+                f"No executor registered for module '{req.module}'"
+            )
         loop = asyncio.get_running_loop()
         result_list = await loop.run_in_executor(
             None, lambda: executor.run([req])
@@ -61,7 +63,7 @@ class VScheduler:
         Schedule a new request; its result will be enqueued for consumption.
         """
         # Run and enqueue in background
-        asyncio.create_task(self._run_and_enqueue(req))
+        return asyncio.create_task(self._run_and_enqueue(req))
 
     async def _run_and_enqueue(self, req: InRequest) -> OutResponse:
         """

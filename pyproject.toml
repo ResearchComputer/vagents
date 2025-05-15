@@ -11,7 +11,7 @@ authors = [
 dynamic = ["dependencies", "optional-dependencies", "version"]
 
 [project.scripts]
-vagent = "vagents.entrypoints.cli:app"
+vagents = "vagents.entrypoint.cli:app"
 
 [tool.setuptools.dynamic]
 dependencies = { file = ["meta/requirements.txt"] }
@@ -35,6 +35,7 @@ filterwarnings = [
 markers = [
     "slow: lower-importance tests that take an excessive amount of time",
     "gpu: tests that require GPU",
+    "api: tests that require API access",
 ]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"

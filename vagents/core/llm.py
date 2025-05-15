@@ -173,6 +173,7 @@ class LLM:
         response_format: Optional[BaseModel] = None,
         stream: Optional[bool] = False,
     ):
+        logger.debug(f"Invoking LLM {self.model_name} with messages: {messages}, stream: {stream}")
         if tools and stream:
             stream = False
             logger.warning(

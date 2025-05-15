@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from timeit import default_timer as timer
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Union, List, Dict, Any, Optional
-
+from typing import AsyncGenerator
 
 class MessageRole(str, Enum):
     USER = "user"
@@ -109,4 +109,4 @@ class OutResponse(BaseModel):
     session: Optional[Dict[str, Any]] = None
     metrics: Optional[Metrics] = None
     events: Optional[Dict[str, Any]] = None
-    output: Optional[Union[str, List["Message"]]] = None
+    output: Optional[Union[str, List["Message"], AsyncGenerator]] = None
