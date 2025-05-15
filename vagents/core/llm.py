@@ -133,16 +133,26 @@ class LLM:
                     text = await resp.text()
                     raise aiohttp.ClientError(f"Request failed [{resp.status}]: {text}")
                 if stream:
-                    async for chunk in resp.content:
-                        chunk = chunk.decode().replace("data: ", "").strip()
-                        if not chunk:
-                            continue
-                        chunk = json.loads(chunk)["choices"]
-                        if len(chunk) == 0:
-                            continue
-                        chunk = chunk[0]["delta"]["content"]
-                        if chunk:
-                            yield chunk
+                    try:
+                        async for chunk in resp.content:
+                            chunk = chunk.decode().replace("data: ", "").strip()
+                            if not chunk:
+                                continue
+                            if chunk == "[DONE]":
+                                return 
+                            chunk = json.loads(chunk)
+                            if "choices" not in chunk:
+                                continue
+                            chunk = chunk["choices"]
+                            if len(chunk) == 0:
+                                continue
+                            chunk = chunk[0]["delta"]["content"]
+                            if chunk:
+                                yield chunk
+                    except aiohttp.client_exceptions.ClientPayloadError as e:
+                        logger.error(f"Streaming payload error: {e}")
+                        # Stop streaming on payload errors
+                        return
                 else:
                     result = await resp.json()
                     result = result["choices"][0]["message"]["content"]
@@ -165,7 +175,7 @@ class LLM:
     async def __call__(
         self,
         messages: List[Union[Message, Dict]],
-        temperature: Optional[float] = 0.3,
+        temperature: Optional[float] = 0.1,
         max_tokens: Optional[int] = None,
         min_tokens: Optional[int] = None,
         model: Optional[str] = None,

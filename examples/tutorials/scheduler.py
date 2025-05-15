@@ -47,10 +47,8 @@ if __name__ == "__main__":
     )
     async def run_request(req: InRequest):
         task = scheduler.add_request(req)
-        print(f"Task {task} added to scheduler.")
         # Wait for the response to ensure session is closed
         resp = await task
-        print(f"Response received: {resp}")
         async for chunk in resp.output:
-            print(f"Received chunk: {chunk}")
+            print(chunk, end="", flush=True)
     asyncio.run(run_request(query))
