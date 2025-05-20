@@ -106,7 +106,7 @@ class OutResponse(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     input: Union[str, List["Message"], Dict[str, Any]]
     module: str
-    session: Optional[Dict[str, Any]] = None
+    session: Optional[List["Message"]] = None
     metrics: Optional[Metrics] = None
     events: Optional[Dict[str, Any]] = None
     output: Optional[Union[str, List["Message"], AsyncGenerator]] = None

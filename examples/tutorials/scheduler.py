@@ -1,12 +1,12 @@
 import os
 from vagents.core import VModule, VModuleConfig, InRequest, OutResponse, LLM
-from vagents.executor import compile_to_graph, VScheduler
+from vagents.executor import compile_to_graph, VScheduler, Graph
 from vagents.managers import LMManager
 
 class ChatModule(VModule):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(config=VModuleConfig(enable_async=False))
-        llm = LLM(
+        llm: LLM = LLM(
             model_name="Qwen/Qwen3-32B",
             base_url=os.environ.get("RC_API_BASE", ""),
             api_key=os.environ.get("RC_API_KEY", ""),
@@ -20,7 +20,6 @@ class ChatModule(VModule):
             messages=[{"role": "user", "content": query.input}],
             stream=query.stream
         )
-
         return OutResponse(
             output=res,
             id=query.id,
@@ -38,8 +37,8 @@ if __name__ == "__main__":
         module="ChatModule",
         stream=True,
     )
-    compiled_dr = compile_to_graph(chat_module.forward)
-    scheduler = VScheduler()
+    compiled_dr: Graph = compile_to_graph(chat_module.forward)
+    scheduler: VScheduler = VScheduler()
     scheduler.register_module(
         module_name="ChatModule",
         compiled_graph=compiled_dr,

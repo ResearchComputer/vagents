@@ -21,7 +21,6 @@ backoff_logger = logging.getLogger("backoff")
 
 VAGENT_MAX_BACKOFF_TIME = int(os.environ.get("VAGENT_MAX_BACKOFF_TIME", 5 * 60))
 
-
 class LLM:
     def __init__(
         self,
@@ -155,7 +154,10 @@ class LLM:
                         return
                 else:
                     result = await resp.json()
-                    result = result["choices"][0]["message"]["content"]
+                    if tools:
+                        result = result['choices'][0]['message']["tool_calls"]
+                    else:
+                        result = result["choices"][0]["message"]["content"]
                     yield result
 
     def _post_process(
@@ -183,7 +185,6 @@ class LLM:
         response_format: Optional[BaseModel] = None,
         stream: Optional[bool] = False,
     ):
-        logger.debug(f"Invoking LLM {self.model_name} with messages: {messages}, stream: {stream}")
         if tools and stream:
             stream = False
             logger.warning(

@@ -4,10 +4,10 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from vagents.utils import logger
-from vagents.core import InputRequest, ResponseOutput
+from vagents.core import InRequest, OutResponse
 
 
-async def handle_response_request(modules, req: InputRequest) -> ResponseOutput:
+async def handle_response_request(modules, req: InRequest) -> OutResponse:
     if req.module not in modules:
         logger.error(f"Module {req.module} not registered")
         return HTTPException(status_code=400, detail="Module not registered")

@@ -173,6 +173,5 @@ def ensure_typed_parameters(tool_spec: Tool, parameters):
 
 def parse_tool_parameters(tool_spec: Tool, parameters):
     cleaned_parameters = clean_tool_parameters(tool_spec, parameters)
-    print(f"Cleaned parameters: {cleaned_parameters}")
     typed_parameters = ensure_typed_parameters(tool_spec, cleaned_parameters)
     return typed_parameters

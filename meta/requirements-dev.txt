@@ -6,3 +6,4 @@ coverage
 pytest-asyncio
 dstool
 seaborn
+pyrefly

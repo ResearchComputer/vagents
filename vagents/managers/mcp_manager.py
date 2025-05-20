@@ -77,7 +77,7 @@ class MCPManager(DockerWorkerManager):
 
         worker_id = f"mcp-{uuid.uuid4().hex[:4]}"
         mcp_uri = mcp_args.to_mcp_uri()
-        worker_command = ["bash", "-c", f"vagent start-mcp '{mcp_uri}' --debug"]
+        worker_command = ["bash", "-c", f"vagents start-mcp '{mcp_uri}' --debug"]
         host_port = find_open_port()
 
         await self.start_worker(

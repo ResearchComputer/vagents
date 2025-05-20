@@ -1,11 +1,15 @@
 import mcp
+import json
 import asyncio
+import traceback
 from fastmcp import Client
 from typing import Any, List
+from fastmcp.client.transports import SSETransport
 
 from vagents.core import Tool
-from vagents.managers import MCPManager, MCPServerArgs
 from vagents.utils import logger
+from vagents.managers import MCPManager, MCPServerArgs
+
 from .tool import parse_tool_parameters
 
 
@@ -25,7 +29,8 @@ class MCPClient:
         tools = []
         tool_server_mapping = {}
         for server in servers:
-            async with Client(server) as client:
+            transport: SSETransport = SSETransport(url=server)
+            async with Client(transport) as client:
                 server_tools = await client.list_tools()
                 for tool in server_tools:
                     tool_name = tool.name
@@ -59,25 +64,26 @@ class MCPClient:
 
         # Convert parameters to the correct types based on the tool's schema
         parameters = kwargs.get("parameters", {})
-
+        parameters = json.loads(parameters) if isinstance(parameters, str) else parameters
         typed_parameters = parse_tool_parameters(
             tool_spec=tool_spec, parameters=parameters
         )
-        print(f"Calling [{tool_name}] with parameters: {typed_parameters}")
         try:
-            async with Client(first_server) as client:
+            
+            transport: SSETransport = SSETransport(url=first_server)
+            async with Client(transport) as client:
                 response = await client.call_tool(
                     name=tool_name,
                     arguments=typed_parameters,
                 )
-                print(f"Response from [{tool_name}]: {response}")
                 # Process the response
                 if isinstance(response, List):
                     responses = [parse_response(r) for r in response]
                 return responses
 
         except Exception as e:
-            logger.error(f"Error calling tool {tool_name}: {e}.")
+            traceback.print_exc()
+            logger.error(f"Error calling tool [{tool_name}]: {e}.")
             return f"Error calling tool: {e}"
 
     async def start_mcp(self, args: List[MCPServerArgs]):

@@ -36,13 +36,19 @@ class LMManager:
                 messages[0].content = docstring
         elif isinstance(query, str):
             messages = [Message(role="system", content=docstring)]
-        messages.append(Message(role="user", content=func(query)))
+        kwargs['tools'] = tools
+        messages.append(Message(role="user", content=func(query, **kwargs)))
         tool_info = None
         if tools:
             tool_info = [tool.to_llm_format() if isinstance(tool, Tool) else parse_function_signature(tool) for tool in tools]
-        return await self.models[model_name](
+        kwargs.pop('tools', None)
+        res = await self.models[model_name](
             messages=messages,
             tools=tool_info,
             response_format=response_format,
             **kwargs
         )
+        if tools:
+            return await res.__anext__()
+        else:
+            return res

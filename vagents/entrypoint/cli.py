@@ -1,17 +1,37 @@
 import typer
+from typer import Typer
+from vagents.utils import dataclass_to_cli
+from vagents.services.vagent_svc.args import ServerArgs
 
-app = typer.Typer()
+app: Typer  = typer.Typer()
 
 @app.command()
+@dataclass_to_cli
 def serve(
-    port: int = typer.Option(8000, help="Port to run the server on"),
-    host: str = typer.Option("0.0.0.0", help="Host to bind the server to"),
-):
+    args: ServerArgs
+) -> None:
+    """Spin up the server"""
     from vagents.services.vagent_svc.server import start_server
-    start_server(port)
+    start_server(args)
 
 @app.command()
-def version():
+def start_mcp(mcp_uri: str, port: int = 8080, debug: bool = False):
+    from vagents.services import start_mcp
+
+    if debug:
+        # print envs variables
+        import os
+
+        print("--- envs:")
+        for key, value in os.environ.items():
+            print(f"{key}: {value}")
+    start_mcp(
+        mcp_uri=mcp_uri,
+        port=port,
+    )
+
+@app.command()
+def version() -> None:
     from vagents import __version__
     typer.echo(f"vAgents version: {__version__}")
 
