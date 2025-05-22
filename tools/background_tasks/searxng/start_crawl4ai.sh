@@ -3,4 +3,4 @@ docker run -d \
   --name crawl4ai \
   --rm \
   --shm-size=32g \
-  unclecode/crawl4ai:0.6.0-r1
+  unclecode/crawl4ai:latest

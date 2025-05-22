@@ -6,7 +6,6 @@ from vagents.contrib import summarize
 crawler_mcp: MCPServerArgs = MCPServerArgs(remote_addr="http://localhost:11235/mcp/sse")
 local_search_mcp: MCPServerArgs = MCPServerArgs(remote_addr="http://localhost:56146/sse")
 
-
 # local_search_mcp: MCPServerArgs = MCPServerArgs(
 #     command="pipx",
 #     args=["run", "mcp-searxng"],
@@ -52,6 +51,7 @@ class DeepResearch(VModule):
         )
         for tool_call in init_res:
             session.append({"role": "assistant", "content": f"I will use the tool {tool_call['function']['name']} with parameters {tool_call['function']['arguments']}"})
+            
             result = await self.client.call_tool(
                 name = tool_call['function']['name'],
                 parameters = tool_call['function']['arguments'],

@@ -2,9 +2,17 @@ import os
 from vagents.core import VModule, VModuleConfig, InRequest, OutResponse, MCPServerArgs, MCPClient, LLM, Session
 from vagents.managers import LMManager
 from vagents.contrib import summarize
+from vagents.executor import compile_to_graph
 
 crawler_mcp: MCPServerArgs = MCPServerArgs(remote_addr="http://localhost:11235/mcp/sse")
 local_search_mcp: MCPServerArgs = MCPServerArgs(remote_addr="http://localhost:56146/sse")
+
+
+# local_search_mcp: MCPServerArgs = MCPServerArgs(
+#     command="pipx",
+#     args=["run", "mcp-searxng"],
+#     envs={"SEARXNG_URL": "http://host.docker.internal:8080"},
+# )
 
 def init_step(query: str, **kwargs)-> str:
     """
@@ -67,14 +75,10 @@ class DeepResearch(VModule):
             )
             for tool_call in res:
                 session.append({"role": "assistant", "content": f"I will use the tool {tool_call['function']['name']} with parameters {tool_call['function']['arguments']}"})
-                
                 result = await self.client.call_tool(
                     name = tool_call['function']['name'],
                     parameters = tool_call['function']['arguments'],
                 )
-                
-                print(f"result of [{tool_call['function']['name']}]: {result}")
-                
                 session.append({"role": "user", "content": f"Here is the result from the tool {tool_call['function']['name']}: {result}"})
         
         summary = await self.models.invoke(
@@ -96,6 +100,8 @@ class DeepResearch(VModule):
 if __name__ == "__main__":
     import asyncio
     deep_research = DeepResearch()
+    compiled_dr = compile_to_graph(deep_research.forward)
+    print(compiled_dr)
     print(f"DeepResearch module initialized with models: {deep_research.models}")
     output = asyncio.run(deep_research.forward(InRequest(
         id="test_query",
