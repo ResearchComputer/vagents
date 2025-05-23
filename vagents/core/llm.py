@@ -124,6 +124,7 @@ class LLM:
             response_format,
             stream=stream,
         )
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 endpoint, json=payload, headers=headers, timeout=600

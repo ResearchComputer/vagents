@@ -44,47 +44,47 @@ if __name__ == "__main__":
     num_queries = 10
     sft_dc_module = SFTDataCleaning()
     compiled_dr = compile_to_graph(sft_dc_module.forward)
-
+    print(f"compiled graph: {compiled_dr}")
     # 1) build & register scheduler
-    scheduler = VScheduler()
-    scheduler.register_module(
-        module_name="SFTDataCleaning",
-        compiled_graph=compiled_dr,
-        module_instance=sft_dc_module,
-    )
+    # scheduler = VScheduler()
+    # scheduler.register_module(
+    #     module_name="SFTDataCleaning",
+    #     compiled_graph=compiled_dr,
+    #     module_instance=sft_dc_module,
+    # )
 
-    async def main():
-        # 2) prepare your list of requests
-        requests = [
-            InRequest(
-                id=f"q{i}",
-                input={"prompt": "What is the capital of France?"},
-                module="SFTDataCleaning",
-            )
-            for i in range(num_queries)
-        ]
+    # async def main():
+    #     # 2) prepare your list of requests
+    #     requests = [
+    #         InRequest(
+    #             id=f"q{i}",
+    #             input={"prompt": "What is the capital of France?"},
+    #             module="SFTDataCleaning",
+    #         )
+    #         for i in range(num_queries)
+    #     ]
 
-        # --- Option A: fixed‐batch, fire & consume via dispatch() ---
-        start = timer()
-        async for resp in scheduler.dispatch(requests):
-            print(f"[dispatch] got {resp.id}: {resp.output}")
-        elapsed = timer() - start
-        print(f"Total dispatch time: {elapsed:.2f}s")
+    #     # --- Option A: fixed‐batch, fire & consume via dispatch() ---
+    #     start = timer()
+    #     async for resp in scheduler.dispatch(requests):
+    #         print(f"[dispatch] got {resp.id}: {resp.output}")
+    #     elapsed = timer() - start
+    #     print(f"Total dispatch time: {elapsed:.2f}s")
 
-        # --- Option B: dynamic pool, add then consume via responses() ---
-        # clear any previous state
-        # (re-enqueue if you want to interleave new requests at runtime)
-        for req in requests:
-            scheduler.add_request(req)
+    #     # --- Option B: dynamic pool, add then consume via responses() ---
+    #     # clear any previous state
+    #     # (re-enqueue if you want to interleave new requests at runtime)
+    #     for req in requests:
+    #         scheduler.add_request(req)
 
-        start = timer()
-        count = 0
-        async for resp in scheduler.responses():
-            print(f"[responses] got {resp.id}: {resp.output}")
-            count += 1
-            if count >= num_queries:
-                break
-        elapsed = timer() - start
-        print(f"Total dynamic time: {elapsed:.2f}s")
+    #     start = timer()
+    #     count = 0
+    #     async for resp in scheduler.responses():
+    #         print(f"[responses] got {resp.id}: {resp.output}")
+    #         count += 1
+    #         if count >= num_queries:
+    #             break
+    #     elapsed = timer() - start
+    #     print(f"Total dynamic time: {elapsed:.2f}s")
 
-    asyncio.run(main())
+    # asyncio.run(main())

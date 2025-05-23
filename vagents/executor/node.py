@@ -1,3 +1,4 @@
+import ast
 import asyncio
 from vagents.core import OutResponse
 
@@ -28,7 +29,7 @@ class ActionNode(Node):
         if 'await ' in self.source:
             import re
             # Match patterns like 'var = await expr'
-            m = re.match(r"(\w+)\s*=\s*await\s+(.+)", self.source)
+            m: ast.Match[str] | None = re.match(r"(\w+)\s*=\s*await\s+(.+)", self.source)
             if m:
                 var, expr = m.groups()
                 # Build coroutine that returns the awaited expression
@@ -74,6 +75,7 @@ class ConditionNode(Node):
         self.false_next = false_next
 
     def execute(self, ctx):
+        print(f"Executing condition: {self.code}")
         branch = eval(self.code, ctx, ctx)
         return self.true_next if branch else self.false_next
 

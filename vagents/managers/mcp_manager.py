@@ -36,6 +36,12 @@ class MCPServerArgs:
             return self.remote_addr
         return f"{self.command} {' '.join(self.args)}"
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "MCPServerArgs":
+        if "remote_addr" in data:
+            return cls(remote_addr=data["remote_addr"])
+        else:
+            raise NotImplementedError("Local MCP server is not supported yet.")
 
 class MCPManager(DockerWorkerManager):
     def __init__(self):

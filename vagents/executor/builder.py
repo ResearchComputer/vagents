@@ -66,13 +66,9 @@ class GraphBuilder:
             _block_indent, block_exit_target_for_linking, last_node_in_block = stack[-1]
             if last_node_in_block:
                 if isinstance(last_node_in_block, ConditionNode):
-                    # If the ConditionNode's true branch was pointing to the block's general exit,
-                    # it means it was a fallthrough; update it to the current actual next node.
-                    if last_node_in_block.true_next == block_exit_target_for_linking:
-                        last_node_in_block.true_next = node
-                    # Same for the false branch.
-                    if last_node_in_block.false_next == block_exit_target_for_linking:
-                        last_node_in_block.false_next = node
+                    # If the last node was a conditional structure, relink its fall-through paths
+                    # that were pointing to the general block exit, to point to the current node.
+                    self._relink_node_successors(last_node_in_block, block_exit_target_for_linking, node)
                 elif hasattr(last_node_in_block, "next"):  # For ActionNode etc.
                     # If its .next was pointing to the block's general exit, update it.
                     # This handles cases where .next was set to node_default_next by _make_node.
@@ -107,6 +103,42 @@ class GraphBuilder:
 
         # print(f"stack: {stack}") # Original debug print
         return head_of_sequence
+
+    def _relink_node_successors(self, current_node, old_target, new_target, visited=None):
+        if visited is None:
+            visited = set()
+
+        if not current_node or current_node in visited:
+            return
+        visited.add(current_node)
+
+        # Nodes that terminate flow or have specific jump targets handled by their creation logic
+        if isinstance(current_node, (ReturnNode, BreakNode)): # Add ContinueNode if it exists and behaves similarly
+            return
+
+        if isinstance(current_node, ConditionNode):
+            # If a branch pointed directly to old_target (e.g., empty branch), update it.
+            if current_node.true_next == old_target:
+                current_node.true_next = new_target
+            # Else, recurse if not None (it might be already pointing to something else)
+            elif current_node.true_next is not None:
+                self._relink_node_successors(current_node.true_next, old_target, new_target, visited.copy()) # Use copy of visited for independent branch traversal
+
+            if current_node.false_next == old_target:
+                current_node.false_next = new_target
+            elif current_node.false_next is not None:
+                self._relink_node_successors(current_node.false_next, old_target, new_target, visited.copy()) # Use copy of visited
+
+        elif hasattr(current_node, 'next'): # ActionNode, etc.
+            if current_node.next == old_target:
+                current_node.next = new_target
+            # If current_node.next is not old_target and not None, it means this node is part of
+            # an internal sequence. We should still recurse on its .next, because that sequence 
+            # might *eventually* lead to old_target.
+            elif current_node.next is not None:
+                 self._relink_node_successors(current_node.next, old_target, new_target, visited)
+        # If a node has no 'next' attribute and is not a ConditionNode/Return/Break,
+        # it's implicitly done, or it's an error/unhandled type.
 
     def _make_node(
         self, stmt, next_node

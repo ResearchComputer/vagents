@@ -39,13 +39,14 @@ class MCPClient:
                     tool_server_mapping[tool_name] = server
         return tools, tool_server_mapping
 
-    async def list_tools(self):
+    async def list_tools(self, hide_tools: List[str] = None):
         if self._tools is None:
             self._tools, self._tools_server_mapping = await self.fetch_tools()
-        return self._tools
+        return [x for x in self._tools if x.name not in hide_tools]
 
     async def call_tool(self, *args, **kwargs):
         tool_name = kwargs.get("name") or kwargs.get("tool_name")
+        
         if not tool_name:
             raise ValueError("Tool name not provided")
 
@@ -59,18 +60,26 @@ class MCPClient:
             self._tools, self._tools_server_mapping = await self.fetch_tools()
 
         tool_spec = next((x for x in self._tools if x.name == tool_name), None)
+        
         if not tool_spec:
             raise ValueError(f"Tool {tool_name} not found.")
 
         # Convert parameters to the correct types based on the tool's schema
         parameters = kwargs.get("parameters", {})
         parameters = json.loads(parameters) if isinstance(parameters, str) else parameters
+        
+        if kwargs.get("override"):
+            if tool_name in kwargs["override"]:
+                override = kwargs["override"][tool_name]
+                parameters.update(override)
+        
         typed_parameters = parse_tool_parameters(
             tool_spec=tool_spec, parameters=parameters
         )
+        print(f"[{tool_name}] typed_parameters: {typed_parameters}")
         try:
-            
             transport: SSETransport = SSETransport(url=first_server)
+            
             async with Client(transport) as client:
                 response = await client.call_tool(
                     name=tool_name,
@@ -79,6 +88,7 @@ class MCPClient:
                 # Process the response
                 if isinstance(response, List):
                     responses = [parse_response(r) for r in response]
+                    responses = "\n\n".join(responses)
                 return responses
 
         except Exception as e:

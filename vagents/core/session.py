@@ -20,4 +20,9 @@ class Session:
     def clear(self)-> None:
         self.history = []
 
-    
+    def __repr__(self)-> str:
+        repr = f"----- {self.session_id} -----\n"
+        for message in self.history:
+            repr += f"[{message.role}]: {message.content}\n"
+        repr += "---------------------\n"
+        return repr

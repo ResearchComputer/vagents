@@ -8,7 +8,7 @@ class ChatModule(VModule):
     def __init__(self):
         super().__init__(config=VModuleConfig(enable_async=False))
         llm = LLM(
-            model_name="Qwen/Qwen3-32B",
+            model_name="Qwen/Qwen3-8B",
             base_url=os.environ.get("RC_API_BASE", ""),
             api_key=os.environ.get("RC_API_KEY", ""),
         )
@@ -16,15 +16,15 @@ class ChatModule(VModule):
         self.models.add_model(llm)        
 
     async def forward(self, query: InRequest) -> OutResponse:
-        res = await self.models.call("Qwen/Qwen3-32B", messages=[{"role": "user", "content": query.input}])
-        res2 = await self.models.call("Qwen/Qwen3-32B", [{"role": "user", "content": query.input}])
+        res = await self.models.call("Qwen/Qwen3-8B", messages=[{"role": "user", "content": query.input}])
+        
+        res2 = await self.models.call("Qwen/Qwen3-8B", [{"role": "user", "content": query.input}])
         return OutResponse(
             output=f"{res}\n\n{res2}",
             id=query.id,
             input=query.input,  
             module=query.module,
         )
-        
 
 if __name__ == "__main__":
     import asyncio
