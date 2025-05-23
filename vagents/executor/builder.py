@@ -197,8 +197,8 @@ class GraphBuilder:
             # The actual iteration logic (next() and StopIteration) is embedded.
             # `next_node` is the exit point if the loop terminates normally.
             loop_condition_surrogate = ConditionNode(
-                f"has_next({iter_var})"
-            )  # Placeholder
+                f"has_next('{iter_var}', __execution_context__)" # Pass iter_var as string and context
+            )
 
             self.loop_stack.append((loop_condition_surrogate, next_node))
 

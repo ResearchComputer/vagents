@@ -46,7 +46,7 @@ class DeepResearch(VModule):
         ))
         
         self.models.add_model(LLM(
-            model_name="Qwen/Qwen3-8B",
+            model_name="Qwen/Qwen3-32B",
             base_url=os.environ.get("RC_API_BASE", ""),
             api_key=os.environ.get("RC_API_KEY", ""),
         ))
@@ -129,7 +129,7 @@ class DeepResearch(VModule):
         
         summary = await self.models.invoke(
             finalize,
-            model_name="Qwen/Qwen3-8B",
+            model_name="Qwen/Qwen3-32B",
             query=query.input,
             history=str(session.history),
         )

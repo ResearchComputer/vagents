@@ -20,7 +20,7 @@ class ActionNode(Node):
 
     def __init__(self, source: str, next_node=None):
         super().__init__()
-        self.source = source.strip("\n")
+        self.source = source.strip()  # Changed from source.strip("\\n")
         self.code = self.source
         self.next = next_node
 
@@ -28,8 +28,8 @@ class ActionNode(Node):
         # If this statement contains an await, handle awaited assignment or fallback
         if 'await ' in self.source:
             import re
-            # Match patterns like 'var = await expr'
-            m: ast.Match[str] | None = re.match(r"(\w+)\s*=\s*await\s+(.+)", self.source)
+            # Regex to match patterns like 'var = await expr' or 'var: type = await expr'
+            m = re.match(r"(\w+)\s*(?::\s*\w+)?\s*=\s*await\s+(.+)", self.source)
             if m:
                 var, expr = m.groups()
                 # Build coroutine that returns the awaited expression
@@ -75,7 +75,6 @@ class ConditionNode(Node):
         self.false_next = false_next
 
     def execute(self, ctx):
-        print(f"Executing condition: {self.code}")
         branch = eval(self.code, ctx, ctx)
         return self.true_next if branch else self.false_next
 

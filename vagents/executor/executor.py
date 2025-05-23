@@ -1,6 +1,30 @@
 from .graph import Graph
 from vagents.core import InRequest, OutResponse
 import importlib
+import itertools
+
+
+def has_next(iterator_name: str, context: dict):
+    """
+    Checks if the iterator in the context (specified by iterator_name) has more elements.
+    If it does, it updates the iterator in the context to a new one that will
+    yield the peeked element first, and then returns True.
+    Otherwise, returns False.
+    """
+    iterator = context.get(iterator_name)
+    if iterator is None:
+        # This case should ideally not happen if the graph is built correctly
+        raise NameError(f"Iterator '{iterator_name}' not found in context.")
+
+    try:
+        first_element = next(iterator)
+        # Put the first element back by creating a new chained iterator
+        context[iterator_name] = itertools.chain([first_element], iterator)
+        return True
+    except StopIteration:
+        return False
+    except TypeError:  # Handle cases where context[iterator_name] is not an iterator
+        return False
 
 
 class GraphExecutor:
@@ -9,7 +33,7 @@ class GraphExecutor:
     def __init__(
         self, graph: Graph, module_instance=None, global_context=None
     ):  # Added module_instance
-        self.ctx = {"__builtins__": __builtins__}
+        self.ctx = {"__builtins__": __builtins__, "has_next": has_next}
         if global_context:
             self.ctx.update(global_context)
 
@@ -57,7 +81,11 @@ class GraphExecutor:
                     # Fallback to original behavior if no module_instance is provided
                     current_ctx["self"] = node
 
+                current_ctx['__execution_context__'] = current_ctx # Add context reference
+
                 executed_node_result = node.execute(current_ctx)
+
+                del current_ctx['__execution_context__'] # Remove context reference
 
                 # Restore 'self' in context to its previous state
                 if had_original_ctx_self:
@@ -72,6 +100,6 @@ class GraphExecutor:
             # Assuming the result of the graph execution is stored in current_ctx['__return__']
             # Append the return value to responses
             responses.append(current_ctx.get("__return__"))
-         
+
         # Return all collected responses
         return responses

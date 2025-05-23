@@ -32,4 +32,4 @@ if __name__ == "__main__":
     output = asyncio.run(deep_research.forward(request))
     
     print(f"Output: {output.output}")
-    print(f"Output2: {output2.output}")
+    print(f"Output2: {output2[0].output}")
