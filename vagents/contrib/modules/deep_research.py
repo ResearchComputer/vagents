@@ -68,6 +68,7 @@ class DeepResearch(VModule):
         await self.client.ensure_ready()
         
         tools = await self.client.list_tools(hide_tools=self.hide_tools)
+        
         session: Session = Session(query.id)
         session.append({"role": "user", "content": query.input})
 
@@ -77,7 +78,6 @@ class DeepResearch(VModule):
             query=query.input,
             tools=tools,
         )
-
         for tool_call in init_res:
             session.append({"role": "assistant", "content": f"I will use the tool {tool_call['function']['name']} with parameters {tool_call['function']['arguments']}"})
 
