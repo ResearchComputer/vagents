@@ -183,3 +183,80 @@ def render_prompt(template: str, **kwargs) -> str:
         if isinstance(kwargs[key], Future):
             kwargs[key] = kwargs[key].result()
     return template.format(**kwargs)
+
+from typing import AsyncGenerator, List, Dict, Any
+from vagents.core.protocol import OutResponse # Assuming OutResponse is here
+from vagents.core.session import Session # Assuming Session is here
+# If InRequest is in a different spot, adjust the import
+from vagents.core.protocol import InRequest # Or from vagents.core.request_response if that's where it is
+
+async def stream_llm_response(
+    llm_stream: AsyncGenerator[Any, None], # Changed from str to Any
+    session: Session,
+    query: InRequest,
+    assistant_role_name: str = "assistant"
+) -> AsyncGenerator[OutResponse, None]:
+    """
+    Handles streaming of LLM responses, passing through dictionary events
+    and collecting raw text chunks for history.
+
+    Args:
+        llm_stream: The asynchronous generator yielding chunks from the LLM.
+                    Can yield strings for text content or dicts for structured events.
+        session: The current session object.
+        query: The input request object.
+        assistant_role_name: The role name to use for the assistant's message in history.
+
+    Yields:
+        OutResponse: An OutResponse object for each item in the stream or final update.
+    """
+    history_snapshot = list(session.history)  # Shallow copy
+    collected_text_chunks: List[str] = []
+    # Heuristic: store text from the last seen 'tool_result' dict if no raw text chunks appear.
+    text_from_last_tool_result: str | None = None
+
+    async for item in llm_stream:
+        if isinstance(item, str):
+            if item:  # Ensure string item is not empty
+                collected_text_chunks.append(item)
+                yield OutResponse(
+                    output=item,
+                    session=history_snapshot,
+                    id=query.id,
+                    input=query.input,
+                    module=query.module,
+                    type="stream_chunk"
+                )
+        elif isinstance(item, dict):
+            # If the item is a dictionary, pass it through.
+            # Heuristically capture 'result' text from 'tool_result' type events.
+            if item.get("type") == "tool_result" and isinstance(item.get("result"), str):
+                text_from_last_tool_result = item["result"]
+            
+            yield OutResponse(
+                output=item, # The whole dictionary is the output
+                session=history_snapshot,
+                id=query.id,
+                input=query.input,
+                module=query.module,
+                type=item.get("type", "stream_event") # Use item's type or a default
+            )
+        # Other types of items in the stream will be ignored by this version.
+
+    final_text_for_history = "".join(collected_text_chunks)
+    if not final_text_for_history and text_from_last_tool_result:
+        # If no raw text chunks were collected, use the text from the last tool_result dict.
+        final_text_for_history = text_from_last_tool_result
+
+    if final_text_for_history: # Only append if there was some text identified
+        session.append({"role": assistant_role_name, "content": final_text_for_history})
+
+    # Yield a final message with the updated history
+    yield OutResponse(
+        output="", # Or final_text_for_history if client needs it again
+        session=session.history, # Send history *after* potential update
+        id=query.id,
+        input=query.input,
+        module=query.module,
+        type="stream_end"
+    )

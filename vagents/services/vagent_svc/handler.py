@@ -81,18 +81,26 @@ async def handle_response(available_modules, req: InRequest) -> JSONResponse | S
     
     try:
         response_generator = module_instance.forward(req)
+        
         if req.stream:
             async def stream_wrapper() -> AsyncGenerator[str, Any]:
                 async for item in response_generator:
+
                     if isinstance(item, str):
                         yield json.dumps({"type": "data", "content": item}) + "\n\n"
+                    
+                    elif isinstance(item, dict):
+                        yield json.dumps(item) + "\n\n"
+
                     elif isinstance(item, OutResponse):
                         if item.output and isinstance(item.output, str):
                             yield json.dumps({"type": "data", "content": item.output}) + "\n\n"
-                        break # OutResponse is considered terminal for the stream
+                        break
+
                     else:
                         logger.warning(f"Unsupported item type in stream for {req.id}: {type(item)}")
             return StreamingResponse(stream_wrapper(), media_type="application/x-ndjson")
+        
         else:
             all_data_chunks: list[str] = []
             final_out_response: Optional[OutResponse] = None

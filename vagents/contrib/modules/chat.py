@@ -1,7 +1,7 @@
 import os
 from typing import List, AsyncGenerator
-from vagents.core import VModule, VModuleConfig, MCPClient, MCPServerArgs, LLM, InRequest, OutResponse, Session
 from vagents.managers import LMManager
+from vagents.core import VModule, VModuleConfig, MCPClient, MCPServerArgs, LLM, InRequest, OutResponse, Session
 
 def init_step(query: str, **kwargs)-> str:
     """
@@ -27,7 +27,7 @@ def finalize(query: str, **kwargs) ->str:
     """
     return f"Please finalize the information you have gathered so far. The information you have is: {query}. Based on the actions you have taken: {kwargs['history']}. Return the final result in pure text format with nothing else."
 
-class DeepResearch(VModule):
+class AgentChat(VModule):
 
     def __init__(self,
                  default_model: str="meta-llama/Llama-3.3-70B-Instruct",
@@ -45,13 +45,13 @@ class DeepResearch(VModule):
             base_url=os.environ.get("RC_API_BASE", ""),
             api_key=os.environ.get("RC_API_KEY", ""),
         ))
-        
+
         self.models.add_model(LLM(
             model_name="Qwen/Qwen3-32B",
             base_url=os.environ.get("RC_API_BASE", ""),
             api_key=os.environ.get("RC_API_KEY", ""),
         ))
-        
+
         self.round_limit = 2
         self.override_parameters = {
             'md': {
@@ -80,7 +80,8 @@ class DeepResearch(VModule):
         )
         for tool_call in init_res:
             session.append({"role": "assistant", "content": f"I will use the tool {tool_call['function']['name']} with parameters {tool_call['function']['arguments']}"})
-
+            yield {"type": "tool_call", "name": tool_call['function']['name'], "arguments": tool_call['function']['arguments']}
+            
             result: str = await self.client.call_tool(
                 name = tool_call['function']['name'],
                 parameters = tool_call['function']['arguments'],
@@ -91,7 +92,7 @@ class DeepResearch(VModule):
                 model_name=self.default_model,
                 query=result,
             )
-            yield f"[{tool_call['function']['name']}] {result}"
+            yield {"type": "tool_result", "name": tool_call['function']['name'], "result": result}
             session.append({
                 "role": "user", 
                 "content": f"Here is the result from the tool {tool_call['function']['name']}: {result}"
@@ -109,7 +110,7 @@ class DeepResearch(VModule):
             if res:
                 for tool_call in res:
                     session.append({"role": "assistant", "content": f"I will use the tool {tool_call['function']['name']} with parameters {tool_call['function']['arguments']}"})
-                    
+                    yield {"type": "tool_call", "name": tool_call['function']['name'], "arguments": tool_call['function']['arguments']}
                     result = await self.client.call_tool(
                         name = tool_call['function']['name'],
                         parameters = tool_call['function']['arguments'],
@@ -120,8 +121,10 @@ class DeepResearch(VModule):
                         model_name=self.default_model,
                         query=result,
                     )
-                    yield f"[{tool_call['function']['name']}] {result}"
+                    yield {"type": "tool_result", "name": tool_call['function']['name'], "result": result}
+                    
                     session.append({"role": "user", "content": f"Here is the result from the tool {tool_call['function']['name']}: {result}"})
+                    
                 if current_round < round_limit:
                     session.append({"role": "assistant", "content": f"Now I will proceed to the next round."})
             else:
@@ -129,16 +132,16 @@ class DeepResearch(VModule):
                 session.append({"role": "assistant", "content": f"Now I will proceed to the next round."})
             current_round += 1
         
-        summary = await self.models.invoke(
+        # Use the helper function for streaming the final summary
+        final_answer = await self.models.invoke(
             finalize,
             model_name="Qwen/Qwen3-32B",
             query=query.input,
             history=str(session.history),
-            stream=True
         )
-        
+
         yield OutResponse(
-            output=summary,
+            output=final_answer,
             session=session.history,
             id=query.id,
             input=query.input,
