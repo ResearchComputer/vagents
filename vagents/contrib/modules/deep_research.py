@@ -31,7 +31,8 @@ class DeepResearch(VModule):
 
     def __init__(self,
                  default_model: str="meta-llama/Llama-3.3-70B-Instruct",
-                 mcp_configs: List[str]=None) -> None:
+                 mcp_configs: List[str]=None
+                ) -> None:
         super().__init__(config=VModuleConfig(enable_async=False))
         
         self.models = LMManager()
@@ -144,4 +145,4 @@ class DeepResearch(VModule):
         )
     
     async def cleanup(self, session_id: str) -> None:
-        pass  # Placeholder for cleanup logic
+        pass
