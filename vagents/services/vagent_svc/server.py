@@ -1,28 +1,26 @@
 import json
-import inspect
+import dill
 import uvicorn
-import importlib
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, FastAPI, HTTPException, Request, File, Form, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
-import dill
+from fastapi.middleware.cors import CORSMiddleware
 
-from vagents.executor import VScheduler, GraphBuilder
-from vagents.core import InRequest, VModuleConfig
+from vagents.executor import VScheduler
+from vagents.core import InRequest, VModuleConfig, OutResponse
 from vagents.utils import logger
 
-from .server_handler import handle_response_request
-from .protocols import (
-    ModuleRegistrationRequest,
-)
 from .args import ServerArgs
+from typing import AsyncGenerator, Any
 
 app: FastAPI = FastAPI()
-
-# Assuming 'modules' is your module registry, adjust its definition if necessary
-# For example: modules: Dict[str, Dict[str, Any]] = {}
-# This might be globally defined or part of a class/application context
-modules: Dict[str, Dict[str, Any]] = {}
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class VServer:
     def __init__(self, router: APIRouter, port: int) -> None:
@@ -44,7 +42,7 @@ class VServer:
     async def register_module(self, request: Request):
         form = await request.form()
         module_content = form.get('module_content')
-        force = form.get('force', 'false').lower() == 'true'
+        force: bool = form.get('force', 'false').lower() == 'true'
         mcp_configs_json = form.get('mcp_configs')
 
         try:
@@ -78,7 +76,7 @@ class VServer:
                     )
 
             # Store the module and its configurations
-            if module_name in modules and not force:
+            if module_name in self.modules and not force:
                 logger.warning(f"Module {module_name} already registered. Use force=True to overwrite.")
                 return JSONResponse(
                     {"error": f"Module {module_name} already registered. Use force=True to overwrite."},
@@ -109,7 +107,81 @@ class VServer:
             )
     
     async def response_handler(self, req: InRequest):
-        return await handle_response_request(self.modules, req)
+        module_name = req.module
+        if module_name not in self.modules:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Module {module_name} not found."
+            )
+
+        module_info = self.modules[module_name]
+        module_class = module_info["class"]
+        mcp_configs = module_info["mcp_configs"]
+
+        try:
+            if hasattr(module_class, '__init__') and 'mcp_configs' in module_class.__init__.__code__.co_varnames:
+                module_instance = module_class(mcp_configs=mcp_configs)
+            else:
+                module_instance = module_class() # Or however your modules are instantiated
+        except Exception as e:
+            logger.error(f"Error instantiating module {module_name}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error instantiating module {module_name}: {str(e)}")
+
+        if not hasattr(module_instance, 'forward'):
+            raise HTTPException(status_code=501, detail=f"Module {module_name} does not have a forward method.")
+
+        try:
+            response_generator = module_instance.forward(req)
+
+            if req.stream:
+                async def stream_wrapper() -> AsyncGenerator[str, Any]:
+                    async for item in response_generator:
+                        if isinstance(item, str):
+                            yield json.dumps({"type": "data", "content": item}) + "\n\n"
+                        elif isinstance(item, OutResponse):
+                            if item.output and isinstance(item.output, str):
+                                yield json.dumps({"type": "data", "content": item.output}) + "\n\n"
+                            break # OutResponse is considered terminal for the stream
+                        else:
+                            logger.warning(f"Unsupported item type in stream for {req.id}: {type(item)}")
+                return StreamingResponse(stream_wrapper(), media_type="application/x-ndjson")
+            else:
+                # Non-streaming: Collect all parts
+                all_data_chunks: list[str] = []
+                final_out_response: Optional[OutResponse] = None
+                
+                async for item in response_generator:
+                    if isinstance(item, str):
+                        all_data_chunks.append(item)
+                    elif isinstance(item, OutResponse):
+                        if item.output and isinstance(item.output, str):
+                            all_data_chunks.append(item.output)
+                        final_out_response = item
+                        break # OutResponse is considered terminal
+                    else:
+                        logger.warning(f"Unsupported item type in non-streaming response for {req.id}: {type(item)}")
+
+                combined_response_content: str = "".join(all_data_chunks)
+
+                if final_out_response:
+                    response_dict = final_out_response.model_dump(exclude_none=True)
+                    response_dict["output"] = combined_response_content
+                    logger.info(f"Non-streaming response for {req.id} constructed from OutResponse.")
+                    return JSONResponse(content=response_dict)
+                else:
+                    logger.error(f"No OutResponse found for non-streaming response for {req.id}. Using fallback.")
+                    
+                    return JSONResponse(content={
+                        "output": combined_response_content,
+                        "id": req.id,
+                        "input": req.input, # Ensure req.input is serializable or handle appropriately
+                        "module": req.module,
+                        "session_history": [], # Basic fallback
+                    })
+
+        except Exception as e:
+            logger.error(f"Error processing request by module {module_name}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error processing request by module {module_name}: {str(e)}")
 
 def start_server(args: ServerArgs) -> None:
     router: APIRouter = APIRouter()

@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, AsyncGenerator
 from vagents.core import VModule, VModuleConfig, MCPClient, MCPServerArgs, LLM, InRequest, OutResponse, Session
 from vagents.managers import LMManager
 
@@ -25,7 +25,7 @@ def finalize(query: str, **kwargs) ->str:
     """
     You are a helpful assistant in the DeepResearch module.
     """
-    return f"Please finalize the information you have gathered so far. The information you have is: {query}. Based on the actions you have taken: {kwargs['history']}. Return the final result in markdown format with nothing else."
+    return f"Please finalize the information you have gathered so far. The information you have is: {query}. Based on the actions you have taken: {kwargs['history']}. Return the final result in pure text format with nothing else."
 
 class DeepResearch(VModule):
 
@@ -51,7 +51,7 @@ class DeepResearch(VModule):
             api_key=os.environ.get("RC_API_KEY", ""),
         ))
         
-        self.round_limit = 10
+        self.round_limit = 2
         self.override_parameters = {
             'md': {
                 'c': "0",
@@ -59,7 +59,7 @@ class DeepResearch(VModule):
         }
         self.hide_tools = ['pdf', 'html', 'screenshot', 'execute_js']
 
-    async def forward(self, query: InRequest) -> OutResponse:
+    async def forward(self, query: InRequest) -> AsyncGenerator[OutResponse, None]:
         if "round_limit" in query.additional:
             round_limit = query.additional["round_limit"]
         else:
@@ -68,7 +68,6 @@ class DeepResearch(VModule):
         await self.client.ensure_ready()
         
         tools = await self.client.list_tools(hide_tools=self.hide_tools)
-        
         session: Session = Session(query.id)
         session.append({"role": "user", "content": query.input})
 
@@ -91,6 +90,7 @@ class DeepResearch(VModule):
                 model_name=self.default_model,
                 query=result,
             )
+            yield f"[{tool_call['function']['name']}] {result}"
             session.append({
                 "role": "user", 
                 "content": f"Here is the result from the tool {tool_call['function']['name']}: {result}"
@@ -119,6 +119,7 @@ class DeepResearch(VModule):
                         model_name=self.default_model,
                         query=result,
                     )
+                    yield f"[{tool_call['function']['name']}] {result}"
                     session.append({"role": "user", "content": f"Here is the result from the tool {tool_call['function']['name']}: {result}"})
                 if current_round < round_limit:
                     session.append({"role": "assistant", "content": f"Now I will proceed to the next round."})
@@ -133,7 +134,8 @@ class DeepResearch(VModule):
             query=query.input,
             history=str(session.history),
         )
-        return OutResponse(
+        print(f"Final summary: {summary}")
+        yield OutResponse(
             output=summary,
             session=session.history,
             id=query.id,

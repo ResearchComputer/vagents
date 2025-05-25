@@ -31,7 +31,11 @@ class MessageRole(str, Enum):
 class Message(BaseModel):
     role: MessageRole
     content: str
-
+    def to_dict(self):
+        return {
+            "role": self.role.value,
+            "content": self.content
+        }
 
 class ActionOutputStatus(str, Enum):
     NORMAL = "normal"

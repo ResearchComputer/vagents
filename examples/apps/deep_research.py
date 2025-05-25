@@ -18,7 +18,7 @@ if __name__ == "__main__":
     print(f"DeepResearch module initialized with models: {deep_research.models}")
     request: InRequest = InRequest(
         id="test_query",
-        input="Roast Xiaozhe Yao's research, in the tone of Sir Humphrey Appleby",
+        input="Roast Xiaozhe Yao's research, in a cynical and sarcastic tone, as if written by Sir Humphrey Appleby",
         module="DeepResearch",
         additional={"round_limit": 4}
     )

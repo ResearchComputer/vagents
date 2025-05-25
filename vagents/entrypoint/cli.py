@@ -17,14 +17,13 @@ def serve(
 @app.command()
 def start_mcp(mcp_uri: str, port: int = 8080, debug: bool = False):
     from vagents.services import start_mcp
-
     if debug:
         # print envs variables
         import os
-
         print("--- envs:")
         for key, value in os.environ.items():
             print(f"{key}: {value}")
+
     start_mcp(
         mcp_uri=mcp_uri,
         port=port,
