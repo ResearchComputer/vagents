@@ -58,43 +58,52 @@ class GraphExecutor:
 
         self.graph = graph.optimize()
 
-    def run(self, inputs: list[any]):
-        """Execute the graph with the given inputs."""
-        results = []
+    async def run(self, inputs: list[any]): # Changed to async def
+        """Execute the graph with the given inputs, yielding results for streaming."""
+        # For true streaming, we process one input at a time and yield from it.
+        # If multiple inputs are meant to be processed sequentially for a single stream, 
+        # this logic would need adjustment. Assuming one input produces one stream of results.
         for i, inp in enumerate(inputs):
-            # Create a new context for each run, inheriting from base_ctx
             current_run_ctx = self.base_ctx.copy()
             current_run_ctx.update({
                 "__execution_context__": {},
-                # "__module_instance__": self.module_instance, # Already in base_ctx if module_instance exists
-                "__yielded_values_stream__": [] 
+                "__yielded_values_stream__": [] # This will be used by YieldNode
             })
-            
-            # Make the InRequest object available as 'query' in the current run's context
-            # This assumes the compiled graph expects the input InRequest to be named 'query',
-            # which is typical if it's from a method like `forward(self, query: InRequest)`.
             current_run_ctx['query'] = inp
-
-            # Optionally, if you still want InRequest attributes as top-level vars (be cautious of name clashes):
-            # if hasattr(inp, '__dict__'):
-            #     for key, value in inp.__dict__.items():
-            #         if key not in current_run_ctx: # Avoid overwriting existing important context vars
-            #             current_run_ctx[key] = value
 
             current_node = self.graph.entry
             while current_node:
                 if isinstance(current_node, ReturnNode):
                     return_value = eval(current_node.code, current_run_ctx, current_run_ctx) if current_node.code else None
-                    if current_run_ctx["__yielded_values_stream__"]:
-                        results.append(current_run_ctx["__yielded_values_stream__"])
-                    else:
-                        results.append(return_value)
+                    # If YieldNodes were used, their values are already yielded directly by current_node.execute
+                    # The final return_value of the graph might be an OutResponse or a simple value.
+                    # If it's an OutResponse, it could be the final piece of a stream or the whole non-streamed response.
+                    if return_value is not None:
+                        yield return_value # Yield the final return value
                     break
                 
-                current_node = current_node.execute(current_run_ctx)
-            
-            if not current_node and current_run_ctx["__yielded_values_stream__"] and not results:
-                 results.append(current_run_ctx["__yielded_values_stream__"])
-                 
-        print(f"results: {results}")
-        return results[0] if len(results) == 1 else results
+                # Node execution itself might yield multiple items if it's a YieldNode or similar
+                # We need to handle if current_node.execute becomes an async generator
+                if hasattr(current_node, 'is_generator') and current_node.is_generator:
+                    async for yielded_item_from_node in current_node.execute(current_run_ctx):
+                        yield yielded_item_from_node
+                    # After an async generator node, we need to get the next node to continue graph execution.
+                    # This assumes the generator node itself returns the next node after it's exhausted.
+                    # This part is tricky and depends on how YieldNode.execute is structured.
+                    # For now, let's assume execute() sets up the stream and returns next node or None.
+                    # The change to YieldNode will handle the actual yielding.
+                    current_node = current_node.next # This might need to be set by the node itself if it yields
+                else:
+                    # For ActionNode and ConditionNode, execute will be async if they handle await
+                    next_node_or_val = await current_node.execute(current_run_ctx) # Await here
+                    if isinstance(next_node_or_val, tuple) and next_node_or_val[0] == "YIELD":
+                        # This is a temporary way to handle yields from non-YieldNodes if necessary
+                        yield next_node_or_val[1]
+                        current_node = next_node_or_val[2]
+                    else:
+                        current_node = next_node_or_val
+
+            # If the graph finished without a ReturnNode but had yields (e.g. from a loop with YieldNodes)
+            # those would have been yielded already by the node.execute calls.
+            # The __yielded_values_stream__ in context was for the old YieldNode model.
+            # With direct yielding from nodes, it might not be the primary mechanism.

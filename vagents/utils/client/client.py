@@ -64,13 +64,9 @@ class VClient():
             stream=should_stream
         )
         if response.status_code == 200:
-            # Handle streaming and non-streaming responses
             content_type = response.headers.get("content-type", "")
-            print(f"content_type: {content_type}")
             if "application/x-ndjson" in content_type:
-                print("Streaming response received (application/x-ndjson detected):")
                 processed_chunks = 0
-                buffer = ""
                 try:
                     for line_bytes in response.iter_lines():
                         if line_bytes:

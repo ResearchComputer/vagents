@@ -37,10 +37,11 @@ if __name__ == "__main__":
     start = timer()
     response = asyncio.run(chat_module.forward(query))
     end = timer()
+    
     print(f"Time taken: {end - start} seconds")
     compiled_dr = compile_to_graph(chat_module.forward)
     print(f"Compiled graph: {compiled_dr}")
-    # Pass the deep_research instance to GraphExecutor
+
     ge = GraphExecutor(
         compiled_dr, module_instance=chat_module
     )

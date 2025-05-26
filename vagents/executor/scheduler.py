@@ -19,7 +19,7 @@ class VScheduler:
         self._response_queue = asyncio.Queue()
         # sets for finished requests
         self._finished_requests = dict()
-        
+
     async def _run_single(self, req: InRequest) -> OutResponse:
         """
         Offload the synchronous .run([req]) call to a thread pool and return the single result.
@@ -57,7 +57,7 @@ class VScheduler:
         Must be called before dispatching requests for that module.
         """
         self._executors[module_name] = GraphExecutor(compiled_graph, module_instance)
-    
+
     def add_request(self, req: InRequest):
         """
         Schedule a new request; its result will be enqueued for consumption.

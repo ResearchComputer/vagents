@@ -11,7 +11,6 @@ from vagents.executor import VScheduler, compile_to_graph, GraphExecutor
 from .args import ServerArgs
 from .handler import register_module_handler, handle_response
 
-
 app: FastAPI = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -29,7 +28,7 @@ class VServer:
 
         self.scheduler = VScheduler()
         self.router.get("/health", tags=["health"])(lambda: {"status": "ok"})
-        
+
         # /v1/* are public, user-facing APIs
         self.router.post("/v1/responses")(self.response_handler)
         # /api/* are for internal use
@@ -38,7 +37,7 @@ class VServer:
     async def register_module(self, request: Request):
         try:
             module_name, registered_module = await register_module_handler(self.modules, request)
-        
+
         except ValueError as e:
             logger.error(f"Error registering module: {e}", exc_info=True)
             return JSONResponse(

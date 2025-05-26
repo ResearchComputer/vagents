@@ -5,8 +5,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from typing import List, Optional, Dict, Any, AsyncGenerator
 
 from vagents.utils import logger
-from vagents.executor import compile_to_graph, GraphExecutor
 from vagents.core import InRequest, OutResponse
+from vagents.executor import compile_to_graph, GraphExecutor, Graph
 
 async def register_module_handler(
         existing_modules:List,
@@ -25,7 +25,9 @@ async def register_module_handler(
 
         pickled_module_bytes: bytes = await (module_content).read()
         if not pickled_module_bytes:
-            logger.error("Module content is empty during registration.")
+            logger.error(
+                "Module content is empty during registration."
+            )
             raise ValueError("Module content is empty.")
 
         class_obj = dill.loads(pickled_module_bytes)
@@ -44,8 +46,9 @@ async def register_module_handler(
             raise ValueError(f"Module {module_name} already registered. Use force=True to overwrite.")
         
         compiled_graph: Graph | None = compile_to_graph(class_obj.forward) if hasattr(class_obj, 'forward') else None
+        
         executor: GraphExecutor | None = GraphExecutor(
-            compiled_graph, module_instance=class_obj
+            compiled_graph, module_instance=class_obj(mcp_configs=parsed_mcp_configs) if parsed_mcp_configs else class_obj()
         ) if compiled_graph else None
         
         return module_name, {
@@ -80,11 +83,12 @@ async def handle_response(available_modules, req: InRequest) -> JSONResponse | S
     module_class = module_info["class"]
     mcp_configs = module_info["mcp_configs"]
     executor = module_info['executor']
+    
     try:
         if hasattr(module_class, '__init__') and 'mcp_configs' in module_class.__init__.__code__.co_varnames:
-                module_instance = module_class(mcp_configs=mcp_configs)
+            module_instance = module_class(mcp_configs=mcp_configs)
         else:
-                module_instance = module_class()
+            module_instance = module_class()
     except Exception as e:
         logger.error(f"Error instantiating module {module_name}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error instantiating module {module_name}: {str(e)}")
@@ -95,41 +99,46 @@ async def handle_response(available_modules, req: InRequest) -> JSONResponse | S
     try:
         if executor:
             logger.info(f"Using GraphExecutor for module {module_name}.")
-            response_generator = executor.run([req])
+            # executor.run will be changed to an async generator
+            response_generator = executor.run([req]) 
         else:
             response_generator = module_instance.forward(req)
         
         if req.stream:
+            logger.debug(f"streaming mode on...")
+            
             async def stream_wrapper() -> AsyncGenerator[str, Any]:
+                # Now response_generator is always an async generator
                 async for item in response_generator:
-
+                    print(f"Streaming item: {item}")
                     if isinstance(item, str):
-                        yield json.dumps({"type": "data", "content": item}) + "\n\n"
-                    
+                        yield json.dumps({"type": "data", "content": item}) + "\n"
                     elif isinstance(item, dict):
-                        yield json.dumps(item) + "\n\n"
-
+                        yield json.dumps(item) + "\n"
                     elif isinstance(item, OutResponse):
                         if item.output and isinstance(item.output, str):
-                            yield json.dumps({"type": "data", "content": item.output}) + "\n\n"
-                        break
-
+                            yield json.dumps({"type": "data", "content": item.output}) + "\n"
                     else:
                         logger.warning(f"Unsupported item type in stream for {req.id}: {type(item)}")
             return StreamingResponse(stream_wrapper(), media_type="application/x-ndjson")
         
-        else:
+        else: # Non-streaming
             all_data_chunks: list[str] = []
             final_out_response: Optional[OutResponse] = None
             
+            # Now response_generator is always an async generator
             async for item in response_generator:
                 if isinstance(item, str):
                     all_data_chunks.append(item)
                 elif isinstance(item, OutResponse):
                     if item.output and isinstance(item.output, str):
                         all_data_chunks.append(item.output)
-                    final_out_response = item
-                    break
+                    # In streaming, OutResponse might be the *final* object containing all context.
+                    # If executor.run yields OutResponse as its *true* final object, this is fine.
+                    final_out_response = item 
+                    if not executor: # Original behavior for module_instance.forward()
+                        break 
+                    # If executor path and OutResponse is yielded, it might be the final one.
                 else:
                     logger.warning(f"Unsupported item type in non-streaming response for {req.id}: {type(item)}")
 
@@ -142,7 +151,7 @@ async def handle_response(available_modules, req: InRequest) -> JSONResponse | S
                 return JSONResponse(content=response_dict)
             else:
                 logger.error(f"No OutResponse found for non-streaming response for {req.id}. Using fallback.")
-                
+
                 return JSONResponse(content={
                     "output": combined_response_content,
                     "id": req.id,

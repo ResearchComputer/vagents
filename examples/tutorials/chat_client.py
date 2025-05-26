@@ -19,7 +19,7 @@ if __name__ =="__main__":
         "module": "vagents.contrib.modules.chat:AgentChat",
         "input": "Roast Xiaozhe Yao's Research, in a very cynical and sarcastic tone. Reply in Chinese.",
         "stream": True,
-        "additional": {"round_limit": 3}
+        "additional": {"round_limit": 2}
     }
     print("Calling DeepResearch module (streaming):")
     client.call_response_handler(agent_chat_req)

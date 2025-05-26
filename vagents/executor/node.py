@@ -24,7 +24,7 @@ class ActionNode(Node):
         self.code = self.source
         self.next = next_node
 
-    def execute(self, ctx):
+    async def execute(self, ctx): # Changed to async def
         # If this statement contains an await, handle awaited assignment or fallback
         if 'await ' in self.source:
             import re
@@ -35,12 +35,8 @@ class ActionNode(Node):
                 # Build coroutine that returns the awaited expression
                 async_code = f"async def __node_exec():\n    return await {expr}"
                 exec(async_code, ctx, ctx)
-                try:
-                    loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                result = loop.run_until_complete(ctx["__node_exec"]())
+                # No explicit loop management needed when called from an async GraphExecutor.run
+                result = await ctx["__node_exec"]() # Directly await
                 del ctx["__node_exec"]
                 # Store result back into context
                 ctx[var] = result
@@ -48,15 +44,10 @@ class ActionNode(Node):
             # Fallback for other await statements
             async_code = "async def __node_exec():\n    " + self.source
             exec(async_code, ctx, ctx)
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            loop.run_until_complete(ctx["__node_exec"]())
+            await ctx["__node_exec"]() # Directly await
             del ctx["__node_exec"]
             return self.next
-        # Normal synchronous execution
+        # Normal synchronous execution (if no await)
         exec(self.code, ctx, ctx)
         return self.next
 
@@ -74,7 +65,9 @@ class ConditionNode(Node):
         self.true_next = true_next
         self.false_next = false_next
 
-    def execute(self, ctx):
+    async def execute(self, ctx): # Changed to async def
+        # Eval can remain synchronous if the test_source itself doesn't involve async calls
+        # If test_source could be async, this would need more complex handling (e.g. ast parsing)
         branch = eval(self.code, ctx, ctx)
         return self.true_next if branch else self.false_next
 
@@ -89,7 +82,7 @@ class BreakNode(Node):
         super().__init__()
         self.target = target
 
-    def execute(self, ctx):
+    async def execute(self, ctx): # Changed to async def
         return self.target
 
     def __repr__(self):
@@ -113,9 +106,9 @@ class ReturnNode(Node):
             else None
         )
 
-    def execute(self, ctx):
-        ctx["__return__"] = eval(self.code, ctx, ctx) if self.code else None
-        return None  # stop execution
+    async def execute(self, ctx): # Changed to async def
+        # This will be yielded by GraphExecutor.run, not put in ctx['__return__'] for yielding
+        return eval(self.code, ctx, ctx) if self.code else None
 
     def __repr__(self):
         return f"ReturnNode<{self.id}>({self.value_source})"
@@ -128,36 +121,31 @@ class YieldNode(Node):
         super().__init__()
         self.yield_expression_source = yield_expression_source.strip()
         self.next = next_node
+        self.is_generator = True # Mark this node as one that yields multiple values
 
-    def execute(self, ctx):
-        # Define a temporary async generator that yields the single expression
-        async_code = f"async def __node_exec():\n    yield {self.yield_expression_source}"
-        exec(async_code, ctx, ctx)
+    async def execute(self, ctx): # Changed to async def, and now an async generator
+        # Define a temporary async function that evaluates the expression to be yielded.
+        # This is safer than direct eval if the expression itself could be complex.
+        async_eval_code = f"async def __eval_yield_expr():\n    return {self.yield_expression_source}"
+        exec(async_eval_code, ctx, ctx)
         
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        yielded_value = await ctx["__eval_yield_expr"]() # Evaluate the expression
+        del ctx["__eval_yield_expr"] # Clean up
 
-        generator_instance = ctx["__node_exec"]()
-        del ctx["__node_exec"] # Clean up temporary function from context
-
-        try:
-            # Run the generator to get its first (and in this wrapper, only) yielded value
-            yielded_value = loop.run_until_complete(generator_instance.__anext__())
-            
-            # Make the yielded value available to the executor via a conventional context key
-            if "__yielded_values_stream__" not in ctx:
-                ctx["__yielded_values_stream__"] = []
-            ctx["__yielded_values_stream__"].append(yielded_value)
-            
-        except StopAsyncIteration:
-            # This would happen if the wrapped expression somehow didn't yield,
-            # which is unlikely for 'yield some_expression'.
-            pass 
+        yield yielded_value # Yield the evaluated value
         
-        return self.next # Proceed to the next node in the graph
+        # For the graph to continue, the YieldNode must indicate what the next node is.
+        # However, a single YieldNode in a graph might be part of a loop, and the graph structure handles the next step.
+        # The GraphExecutor.run loop will take care of moving to self.next if this node doesn't change control flow.
+        # This execute method now yields the value and then implicitly finishes its turn.
+        # The GraphExecutor will then proceed to self.next if this node is not a terminal node.
+        # To be more explicit, we can return self.next, but GraphExecutor.run needs to handle it.
+        # For now, let GraphExecutor.run handle moving to self.next based on the graph structure.
+        # The key is that this method now `yields` the value.
+        # To allow the graph to continue, this node should also return the next node.
+        # This is a bit of a change in how GraphExecutor.run will work with generator nodes.
+        # Let's assume for now that GraphExecutor.run will handle getting the next node from self.next
+        # after this generator is exhausted (which it will be, after one yield).
 
     def __repr__(self):
         return f"YieldNode<{self.id}>(yield {self.yield_expression_source})"
