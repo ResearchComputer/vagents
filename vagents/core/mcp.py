@@ -14,13 +14,13 @@ from .tool import parse_tool_parameters
 
 
 class MCPClient:
-    def __init__(self, serverparams: List[MCPServerArgs]):
+    def __init__(self, serverparams: List[MCPServerArgs]) -> None:
         self.manager = MCPManager()
         self.serverparams = serverparams
         self._tools = None
         self._tools_server_mapping = {}
 
-    async def ensure_ready(self):
+    async def ensure_ready(self) -> None:
         await self.start_mcp(self.serverparams)
         self._tools, self._tools_server_mapping = await self.fetch_tools()
 

@@ -5,23 +5,24 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from typing import List, Optional, Dict, Any, AsyncGenerator
 
 from vagents.utils import logger
+from vagents.executor import compile_to_graph
 from vagents.core import InRequest, OutResponse
 
 async def register_module_handler(
         existing_modules:List,
         request: Request
     ) -> None:
-    
+
     form = await request.form()
     module_content = form.get('module_content')
     force: bool = form.get('force', 'false').lower() == 'true'
     mcp_configs_json = form.get('mcp_configs')
-    
+
     try:
         if module_content is None:
             logger.error("Module content is missing.")
             raise ValueError("Module content is missing.")
-            
+
         pickled_module_bytes: bytes = await (module_content).read()
         if not pickled_module_bytes:
             logger.error("Module content is empty during registration.")
@@ -41,15 +42,21 @@ async def register_module_handler(
         if module_name in existing_modules and not force:
             logger.warning(f"Module {module_name} already registered. Use force=True to overwrite.")
             raise ValueError(f"Module {module_name} already registered. Use force=True to overwrite.")
-
+        
         return module_name, {
             "class": class_obj,
             "mcp_configs": parsed_mcp_configs,
+            "compiled_graph": compile_to_graph(class_obj.forward) if hasattr(class_obj, 'forward') else None
         }
-        
+
     except dill.UnpicklingError as e:
-        logger.error(f"Deserialization error for module: {e}", exc_info=True)
-        raise ValueError(f"Module deserialization error: {str(e)}")
+        logger.error(
+            f"Deserialization error for module: {e}", 
+            exc_info=True
+        )
+        raise ValueError(
+            f"Module deserialization error: {str(e)}"
+        )
 
     except Exception as e:
         logger.error(f"Failed to register module: {e}", exc_info=True)
@@ -112,7 +119,7 @@ async def handle_response(available_modules, req: InRequest) -> JSONResponse | S
                     if item.output and isinstance(item.output, str):
                         all_data_chunks.append(item.output)
                     final_out_response = item
-                    break # OutResponse is considered terminal
+                    break
                 else:
                     logger.warning(f"Unsupported item type in non-streaming response for {req.id}: {type(item)}")
 
@@ -129,9 +136,9 @@ async def handle_response(available_modules, req: InRequest) -> JSONResponse | S
                 return JSONResponse(content={
                     "output": combined_response_content,
                     "id": req.id,
-                    "input": req.input, # Ensure req.input is serializable or handle appropriately
+                    "input": req.input,
                     "module": req.module,
-                    "session_history": [], # Basic fallback
+                    "session_history": [],
                 })
     except Exception as e:
         logger.error(f"Error processing request by module {module_name}: {e}", exc_info=True)

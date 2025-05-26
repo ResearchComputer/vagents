@@ -25,7 +25,7 @@ def finalize(query: str, **kwargs) ->str:
     """
     You are a helpful assistant in the DeepResearch module.
     """
-    return f"Please finalize the information you have gathered so far. The information you have is: {query}. Based on the actions you have taken: {kwargs['history']}. Return the final result in pure text format with nothing else."
+    return f"Please finalize the information you have gathered so far. The information you have is: {query}. Based on the actions you have taken: {kwargs['history']}. Return the final result in markdown format. Show images in markdown format."
 
 class AgentChat(VModule):
 
@@ -33,6 +33,7 @@ class AgentChat(VModule):
                  default_model: str="meta-llama/Llama-3.3-70B-Instruct",
                  mcp_configs: List[str]=None
                 ) -> None:
+        
         super().__init__(config=VModuleConfig(enable_async=False))
         
         self.models = LMManager()
@@ -69,6 +70,9 @@ class AgentChat(VModule):
         await self.client.ensure_ready()
         
         tools = await self.client.list_tools(hide_tools=self.hide_tools)
+        
+        print(f"Tools available: {[tool.name for tool in tools]}")
+        
         session: Session = Session(query.id)
         session.append({"role": "user", "content": query.input})
 
@@ -111,19 +115,24 @@ class AgentChat(VModule):
                 for tool_call in res:
                     session.append({"role": "assistant", "content": f"I will use the tool {tool_call['function']['name']} with parameters {tool_call['function']['arguments']}"})
                     yield {"type": "tool_call", "name": tool_call['function']['name'], "arguments": tool_call['function']['arguments']}
-                    result = await self.client.call_tool(
-                        name = tool_call['function']['name'],
-                        parameters = tool_call['function']['arguments'],
-                        override = self.override_parameters
-                    )
-                    result = await self.models.invoke(
-                        summarize,
-                        model_name=self.default_model,
-                        query=result,
-                    )
-                    yield {"type": "tool_result", "name": tool_call['function']['name'], "result": result}
-                    
-                    session.append({"role": "user", "content": f"Here is the result from the tool {tool_call['function']['name']}: {result}"})
+                    try:
+                        result = await self.client.call_tool(
+                            name = tool_call['function']['name'],
+                            parameters = tool_call['function']['arguments'],
+                            override = self.override_parameters
+                        )
+                        result = await self.models.invoke(
+                            summarize,
+                            model_name=self.default_model,
+                            query=result,
+                        )
+                        yield {"type": "tool_result", "name": tool_call['function']['name'], "result": result}
+                        
+                        session.append({"role": "user", "content": f"Here is the result from the tool {tool_call['function']['name']}: {result}"})
+                    except Exception as e:
+                        print(f"Error calling tool {tool_call['function']['name']}: {e}")
+                        session.append({"role": "assistant", "content": f"An error occurred while calling the tool {tool_call['function']['name']}: {e}"})
+                        yield {"type": "tool_result", "name": tool_call['function']['name'], "result": f"An error occurred while calling the tool: {e}"}
                     
                 if current_round < round_limit:
                     session.append({"role": "assistant", "content": f"Now I will proceed to the next round."})

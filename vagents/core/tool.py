@@ -43,7 +43,7 @@ class Tool:
             required=input_schema.get("required", []),
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Tool(name={self.name}, description={self.description}, parameters={self.parameters}, required={self.required})"
 
     def to_llm_format(self) -> Dict[str, Any]:

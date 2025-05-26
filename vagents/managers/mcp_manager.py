@@ -40,8 +40,15 @@ class MCPServerArgs:
     def from_dict(cls, data: dict) -> "MCPServerArgs":
         if "remote_addr" in data:
             return cls(remote_addr=data["remote_addr"])
+        elif "command" in data and "args" in data:
+            return cls(
+                command=data["command"],
+                args=data.get("args", []),
+                visiblity=MCPServerVisibility(data.get("visiblity", "public")),
+                envs=data.get("envs", None),
+            )
         else:
-            raise NotImplementedError("Local MCP server is not supported yet.")
+            raise ValueError("Invalid MCPServerArgs data format. Must contain 'remote_addr' or 'command' and 'args'.")
 
 class MCPManager(DockerWorkerManager):
     def __init__(self):

@@ -5,8 +5,10 @@ import textwrap
 import importlib
 from typing import Callable
 from functools import lru_cache
-from dask.distributed import Future
-
+from typing import AsyncGenerator, List, Any
+from vagents.core.protocol import OutResponse
+from vagents.core.session import Session
+from vagents.core.protocol import InRequest 
 
 class ImportFinder(ast.NodeVisitor):
     def __init__(self):
@@ -50,21 +52,6 @@ def parse_function_signature(func: Callable):
         },
     }
     return data
-
-
-@lru_cache
-def _is_package_available(package_name: str) -> bool:
-    try:
-        importlib.metadata.version(package_name)
-        return True
-    except importlib.metadata.PackageNotFoundError:
-        return False
-
-
-@lru_cache
-def _is_pillow_available():
-    return importlib.util.find_spec("PIL") is not None
-
 
 BASE_BUILTIN_MODULES = [
     "collections",
@@ -178,17 +165,7 @@ def instance_to_source(instance, base_cls=None):
     return "\n".join(final_lines)
 
 
-def render_prompt(template: str, **kwargs) -> str:
-    for key in kwargs.keys():
-        if isinstance(kwargs[key], Future):
-            kwargs[key] = kwargs[key].result()
-    return template.format(**kwargs)
 
-from typing import AsyncGenerator, List, Dict, Any
-from vagents.core.protocol import OutResponse # Assuming OutResponse is here
-from vagents.core.session import Session # Assuming Session is here
-# If InRequest is in a different spot, adjust the import
-from vagents.core.protocol import InRequest # Or from vagents.core.request_response if that's where it is
 
 async def stream_llm_response(
     llm_stream: AsyncGenerator[Any, None], # Changed from str to Any
