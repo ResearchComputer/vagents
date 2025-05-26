@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from typing import List, Optional, Dict, Any, AsyncGenerator
 
 from vagents.utils import logger
-from vagents.executor import compile_to_graph
+from vagents.executor import compile_to_graph, GraphExecutor
 from vagents.core import InRequest, OutResponse
 
 async def register_module_handler(
@@ -43,10 +43,16 @@ async def register_module_handler(
             logger.warning(f"Module {module_name} already registered. Use force=True to overwrite.")
             raise ValueError(f"Module {module_name} already registered. Use force=True to overwrite.")
         
+        compiled_graph: Graph | None = compile_to_graph(class_obj.forward) if hasattr(class_obj, 'forward') else None
+        executor: GraphExecutor | None = GraphExecutor(
+            compiled_graph, module_instance=class_obj
+        ) if compiled_graph else None
+        
         return module_name, {
             "class": class_obj,
             "mcp_configs": parsed_mcp_configs,
-            "compiled_graph": compile_to_graph(class_obj.forward) if hasattr(class_obj, 'forward') else None
+            "compiled_graph": compiled_graph,
+            "executor": executor,
         }
 
     except dill.UnpicklingError as e:
@@ -73,7 +79,7 @@ async def handle_response(available_modules, req: InRequest) -> JSONResponse | S
     module_info = available_modules[module_name]
     module_class = module_info["class"]
     mcp_configs = module_info["mcp_configs"]
-    
+    executor = module_info['executor']
     try:
         if hasattr(module_class, '__init__') and 'mcp_configs' in module_class.__init__.__code__.co_varnames:
                 module_instance = module_class(mcp_configs=mcp_configs)
@@ -87,7 +93,11 @@ async def handle_response(available_modules, req: InRequest) -> JSONResponse | S
         raise HTTPException(status_code=501, detail=f"Module {module_name} does not have a forward method.")
     
     try:
-        response_generator = module_instance.forward(req)
+        if executor:
+            logger.info(f"Using GraphExecutor for module {module_name}.")
+            response_generator = executor.run([req])
+        else:
+            response_generator = module_instance.forward(req)
         
         if req.stream:
             async def stream_wrapper() -> AsyncGenerator[str, Any]:

@@ -34,11 +34,12 @@ class AgentChat(VModule):
                  mcp_configs: List[str]=None
                 ) -> None:
         
-        super().__init__(config=VModuleConfig(enable_async=False))
+        super().__init__(config=VModuleConfig())
         
         self.models = LMManager()
-        self.client = MCPClient(serverparams=[MCPServerArgs.from_dict(config) for config in mcp_configs] if mcp_configs else [])
-        
+        self.client = MCPClient(
+            serverparams=[MCPServerArgs.from_dict(config) for config in mcp_configs] if mcp_configs else []
+        )
         self.default_model = default_model
         
         self.models.add_model(LLM(
@@ -97,13 +98,16 @@ class AgentChat(VModule):
                 query=result,
             )
             yield {"type": "tool_result", "name": tool_call['function']['name'], "result": result}
+            
             session.append({
                 "role": "user", 
                 "content": f"Here is the result from the tool {tool_call['function']['name']}: {result}"
             })
         
+        print("DEBUG: Before while loop in AgentChat.forward") # Diagnostic print
         current_round = 0
         while current_round < round_limit:
+            print(f"DEBUG: Top of while loop, current_round = {current_round}") # Diagnostic print
             print(f"Round {current_round} / {round_limit}")
             res = await self.models.invoke(
                 recursive_step,
@@ -137,10 +141,12 @@ class AgentChat(VModule):
                 if current_round < round_limit:
                     session.append({"role": "assistant", "content": f"Now I will proceed to the next round."})
             else:
+                print(f"DEBUG: 'res' is empty/None for round {current_round}") # Diagnostic print
                 print(f"Skip round {current_round} / {self.round_limit}")
                 session.append({"role": "assistant", "content": f"Now I will proceed to the next round."})
             current_round += 1
         
+        print("DEBUG: After while loop, before final_answer") # Diagnostic print
         # Use the helper function for streaming the final summary
         final_answer = await self.models.invoke(
             finalize,
@@ -148,7 +154,7 @@ class AgentChat(VModule):
             query=query.input,
             history=str(session.history),
         )
-
+        print(f"final answer: {final_answer}")  # Diagnostic print
         yield OutResponse(
             output=final_answer,
             session=session.history,

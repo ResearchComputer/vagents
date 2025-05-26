@@ -2,7 +2,7 @@ import ast
 import inspect
 import textwrap
 from .graph import Graph
-from .node import Node, ActionNode, ConditionNode, BreakNode, ReturnNode
+from .node import Node, ActionNode, ConditionNode, BreakNode, ReturnNode, YieldNode
 
 
 class GraphBuilder:
@@ -25,7 +25,7 @@ class GraphBuilder:
         else:
             stmts = tree.body
         flat = sorted(((stmt.lineno, stmt) for stmt in stmts), key=lambda x: x[0])
-        entry = self._build_from_flat(flat, next_node=None)
+        entry = self._build_from_flat(flat, next_node=ReturnNode(None)) # Ensure a default return for the graph
         return Graph(entry)
 
     def _build_from_flat(self, flat: list[tuple[int, ast.AST]], next_node):
@@ -65,15 +65,10 @@ class GraphBuilder:
             # Link from the previous node in the current block to the current node `node`
             _block_indent, block_exit_target_for_linking, last_node_in_block = stack[-1]
             if last_node_in_block:
-                if isinstance(last_node_in_block, ConditionNode):
-                    # If the last node was a conditional structure, relink its fall-through paths
-                    # that were pointing to the general block exit, to point to the current node.
-                    self._relink_node_successors(last_node_in_block, block_exit_target_for_linking, node)
-                elif hasattr(last_node_in_block, "next"):  # For ActionNode etc.
-                    # If its .next was pointing to the block's general exit, update it.
-                    # This handles cases where .next was set to node_default_next by _make_node.
-                    if last_node_in_block.next == block_exit_target_for_linking:
-                        last_node_in_block.next = node
+                # Relink all fall-through paths of the previous logical statement block (last_node_in_block)
+                # that were pointing to the general block exit (block_exit_target_for_linking),
+                # to instead point to the current node (`node`).
+                self._relink_node_successors(last_node_in_block, block_exit_target_for_linking, node)
                 # Nodes like ReturnNode don't have a 'next' to link from.
 
             stack[-1] = (_block_indent, block_exit_target_for_linking, node)
@@ -147,7 +142,6 @@ class GraphBuilder:
         if isinstance(
             stmt,
             (
-                ast.Expr,
                 ast.Assign,
                 ast.AugAssign,
                 ast.FunctionDef,
@@ -156,6 +150,12 @@ class GraphBuilder:
             ),
         ):
             return ActionNode(ast.unparse(stmt), next_node)
+
+        # Yield statement
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Yield):
+            # If stmt.value.value is None, it's a bare 'yield'
+            yield_expr_src = ast.unparse(stmt.value.value) if stmt.value.value else "None"
+            return YieldNode(yield_expr_src, next_node)
 
         # If / else
         if isinstance(stmt, ast.If):
@@ -203,10 +203,10 @@ class GraphBuilder:
             self.loop_stack.append((loop_condition_surrogate, next_node))
 
             init_node = ActionNode(
-                f"{iter_var} = iter({iter_src})", loop_condition_surrogate
+                f"__execution_context__['{iter_var}'] = iter({iter_src})", loop_condition_surrogate
             )
 
-            assign_target_code = f"{ast.unparse(stmt.target)} = next({iter_var})"
+            assign_target_code = f"{ast.unparse(stmt.target)} = next(__execution_context__['{iter_var}'])"
             # This assign_node conceptually sits after a successful check by loop_condition_surrogate
             assign_node = ActionNode(
                 assign_target_code, None
@@ -262,6 +262,6 @@ class GraphBuilder:
 
 def compile_to_graph(func):
     if callable(func):
-        src = inspect.getsource(func)
-    builder = GraphBuilder()
+        src: str = inspect.getsource(func)
+    builder: GraphBuilder = GraphBuilder()
     return builder.build(src)

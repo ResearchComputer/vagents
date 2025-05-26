@@ -79,7 +79,7 @@ class ConditionNode(Node):
         return self.true_next if branch else self.false_next
 
     def __repr__(self):
-        return f"ActionNode<{self.id}>({self.code})"
+        return f"ConditionNode<{self.id}>({self.code})"
 
 
 class BreakNode(Node):
@@ -118,4 +118,46 @@ class ReturnNode(Node):
         return None  # stop execution
 
     def __repr__(self):
-        return f"ReturnNode<{self.id}>({self.id})"
+        return f"ReturnNode<{self.id}>({self.value_source})"
+
+
+class YieldNode(Node):
+    """Represents a `yield` statement."""
+
+    def __init__(self, yield_expression_source: str, next_node=None):
+        super().__init__()
+        self.yield_expression_source = yield_expression_source.strip()
+        self.next = next_node
+
+    def execute(self, ctx):
+        # Define a temporary async generator that yields the single expression
+        async_code = f"async def __node_exec():\n    yield {self.yield_expression_source}"
+        exec(async_code, ctx, ctx)
+        
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        generator_instance = ctx["__node_exec"]()
+        del ctx["__node_exec"] # Clean up temporary function from context
+
+        try:
+            # Run the generator to get its first (and in this wrapper, only) yielded value
+            yielded_value = loop.run_until_complete(generator_instance.__anext__())
+            
+            # Make the yielded value available to the executor via a conventional context key
+            if "__yielded_values_stream__" not in ctx:
+                ctx["__yielded_values_stream__"] = []
+            ctx["__yielded_values_stream__"].append(yielded_value)
+            
+        except StopAsyncIteration:
+            # This would happen if the wrapped expression somehow didn't yield,
+            # which is unlikely for 'yield some_expression'.
+            pass 
+        
+        return self.next # Proceed to the next node in the graph
+
+    def __repr__(self):
+        return f"YieldNode<{self.id}>(yield {self.yield_expression_source})"

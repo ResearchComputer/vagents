@@ -58,7 +58,9 @@ class MCPManager(DockerWorkerManager):
         self._args: List[MCPServerArgs] = []
 
     def get_all_servers(self) -> List[str]:
-        managed_servers = [f"http://localhost:{port}/sse" for port in self._ports]
+        managed_servers = [
+            f"http://localhost:{port}/sse" for port in self._ports
+        ]
         outside_servers = self._addresses
         return managed_servers + outside_servers
 

@@ -32,7 +32,6 @@ class VServer:
         
         # /v1/* are public, user-facing APIs
         self.router.post("/v1/responses")(self.response_handler)
-        
         # /api/* are for internal use
         self.router.post("/api/modules")(self.register_module)
 

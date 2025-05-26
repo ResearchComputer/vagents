@@ -11,6 +11,7 @@ class ServerArgs:
     # feature flags
     enable_graph_optimization: bool = True
     scheduler_policy: str = "fcfs" # fcfs
+    fallback_to_eager: bool = False
     
     def translate_auto(self) -> None:
         pass

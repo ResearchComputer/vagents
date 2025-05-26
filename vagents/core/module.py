@@ -8,7 +8,6 @@ from dask.distributed import Future
 class VModuleConfig:
     enable_async: bool = False
 
-
 class VModule:
     def __init__(self, config: VModuleConfig):
         super().__init__()

@@ -1,8 +1,8 @@
-from .graph import Graph
-from vagents.core import InRequest, OutResponse
 import importlib
 import itertools
 
+from .graph import Graph
+from .node import ReturnNode
 
 def has_next(iterator_name: str, context: dict):
     """
@@ -33,73 +33,68 @@ class GraphExecutor:
     def __init__(
         self, graph: Graph, module_instance=None, global_context=None
     ):  # Added module_instance
-        self.ctx = {"__builtins__": __builtins__, "has_next": has_next}
+        self.base_ctx = {"__builtins__": __builtins__, "has_next": has_next} # Renamed to base_ctx
         if global_context:
-            self.ctx.update(global_context)
+            self.base_ctx.update(global_context)
 
-        self.module_instance = module_instance  # Store module_instance
+        self.module_instance = module_instance
 
         if self.module_instance:
-            # Add attributes of module_instance to the shared context
             for attr_name, attr_value in vars(self.module_instance).items():
-                if attr_name not in self.ctx:  # Avoid overwriting existing keys
-                    self.ctx[attr_name] = attr_value
-            # Also include the module's globals (imports, classes) into context
+                if attr_name not in self.base_ctx:
+                    self.base_ctx[attr_name] = attr_value
+            
+            # Make the module instance available as 'self' in the context
+            self.base_ctx['self'] = self.module_instance
+
             module_name = self.module_instance.__class__.__module__
             try:
                 mod = importlib.import_module(module_name)
                 for name, val in vars(mod).items():
-                    if name not in self.ctx:
-                        self.ctx[name] = val
+                    if name not in self.base_ctx:
+                        self.base_ctx[name] = val
             except ImportError:
                 pass
 
         self.graph = graph.optimize()
 
-    def run(self, requests: list[InRequest]) -> list[OutResponse]:
-        responses = []
-        for request in requests:
-            # Create a new context for each request to avoid interference
-            current_ctx = self.ctx.copy()
-            current_ctx[
-                "request"
-            ] = request  # Make the request available in the context
-            current_ctx["query"] = request  # Alias to match parameter name in graph execution
+    def run(self, inputs: list[any]):
+        """Execute the graph with the given inputs."""
+        results = []
+        for i, inp in enumerate(inputs):
+            # Create a new context for each run, inheriting from base_ctx
+            current_run_ctx = self.base_ctx.copy()
+            current_run_ctx.update({
+                "__execution_context__": {},
+                # "__module_instance__": self.module_instance, # Already in base_ctx if module_instance exists
+                "__yielded_values_stream__": [] 
+            })
+            
+            # Make the InRequest object available as 'query' in the current run's context
+            # This assumes the compiled graph expects the input InRequest to be named 'query',
+            # which is typical if it's from a method like `forward(self, query: InRequest)`.
+            current_run_ctx['query'] = inp
 
-            node = self.graph.entry
-            while node is not None:
-                # Preserve original 'self' from context if it exists
-                original_ctx_self_val = current_ctx.get("self")
-                had_original_ctx_self = "self" in current_ctx
+            # Optionally, if you still want InRequest attributes as top-level vars (be cautious of name clashes):
+            # if hasattr(inp, '__dict__'):
+            #     for key, value in inp.__dict__.items():
+            #         if key not in current_run_ctx: # Avoid overwriting existing important context vars
+            #             current_run_ctx[key] = value
 
-                # Set 'self' in the execution context
-                if self.module_instance:
-                    current_ctx[
-                        "self"
-                    ] = self.module_instance  # 'self' is the module instance
-                else:
-                    # Fallback to original behavior if no module_instance is provided
-                    current_ctx["self"] = node
-
-                current_ctx['__execution_context__'] = current_ctx # Add context reference
-
-                executed_node_result = node.execute(current_ctx)
-
-                del current_ctx['__execution_context__'] # Remove context reference
-
-                # Restore 'self' in context to its previous state
-                if had_original_ctx_self:
-                    current_ctx["self"] = original_ctx_self_val
-                else:
-                    # If 'self' was not in current_ctx before we set it, remove it.
-                    if "self" in current_ctx:
-                        del current_ctx["self"]
-
-                node = executed_node_result
-
-            # Assuming the result of the graph execution is stored in current_ctx['__return__']
-            # Append the return value to responses
-            responses.append(current_ctx.get("__return__"))
-
-        # Return all collected responses
-        return responses
+            current_node = self.graph.entry
+            while current_node:
+                if isinstance(current_node, ReturnNode):
+                    return_value = eval(current_node.code, current_run_ctx, current_run_ctx) if current_node.code else None
+                    if current_run_ctx["__yielded_values_stream__"]:
+                        results.append(current_run_ctx["__yielded_values_stream__"])
+                    else:
+                        results.append(return_value)
+                    break
+                
+                current_node = current_node.execute(current_run_ctx)
+            
+            if not current_node and current_run_ctx["__yielded_values_stream__"] and not results:
+                 results.append(current_run_ctx["__yielded_values_stream__"])
+                 
+        print(f"results: {results}")
+        return results[0] if len(results) == 1 else results

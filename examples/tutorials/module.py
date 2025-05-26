@@ -41,7 +41,9 @@ if __name__ == "__main__":
     compiled_dr = compile_to_graph(chat_module.forward)
     print(f"Compiled graph: {compiled_dr}")
     # Pass the deep_research instance to GraphExecutor
-    ge = GraphExecutor(compiled_dr, module_instance=chat_module)
+    ge = GraphExecutor(
+        compiled_dr, module_instance=chat_module
+    )
     start = timer()
     outputs = ge.run(
         [
