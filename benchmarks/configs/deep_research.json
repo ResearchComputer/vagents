@@ -1,0 +1,12 @@
+{
+    "default_model": "meta-llama/Llama-3.3-70B-Instruct",
+    "mcp_configs": [
+        {
+            "remote_addr": "http://localhost:11235/mcp/sse"
+        },
+        {
+            "remote_addr": "http://localhost:48994/sse"
+        }
+    ],
+    "module": "vagents.contrib.modules.deep_research:DeepResearch"
+}

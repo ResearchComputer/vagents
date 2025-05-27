@@ -6,8 +6,8 @@ import json # Added import
 class VClient():
     def __init__(self, base_url: str, api_key: str) -> None:
         self.base_url = base_url
-        # api_key is initialized but not used in the provided snippet
-    
+        self.api_key = api_key
+            
     def register_module(self, path: str, force: bool = False, mcp_configs: list | None = None) : # Added mcp_configs
         """
         Register a module with the server.
@@ -71,24 +71,12 @@ class VClient():
                     for line_bytes in response.iter_lines():
                         if line_bytes:
                             line_str = line_bytes.decode('utf-8')
-                            # It's possible a line itself isn't a full JSON object if there was an issue server-side,
-                            # or if the server sends pings/comments not in JSON format.
-                            # For robust ndjson, each line should be a self-contained JSON.
                             try:
                                 json_chunk = json.loads(line_str)
                                 print(f"Stream chunk: {json_chunk}")
-                                # Example of further processing based on type:
-                                # if json_chunk.get("type") == "data":
-                                #     print(f"Data: {json_chunk.get('content')}")
-                                # elif json_chunk.get("type") == "metadata":
-                                #     print(f"Metadata: {json_chunk.get('content')}")
-                                #     print("Stream finished based on metadata.")
-                                #     break 
                                 processed_chunks += 1
                             except json.JSONDecodeError as e:
                                 print(f"Error decoding JSON from stream line: '{line_str}', Error: {e}")
-                        # iter_lines handles empty lines, so no explicit 'else' needed for that.
-                    
                     if processed_chunks == 0:
                         print("Stream did not yield any complete JSON data lines.")
 

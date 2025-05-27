@@ -26,7 +26,7 @@ class VServer:
         self.port = port
         self.modules = {}
 
-        self.scheduler = VScheduler()
+        self.scheduler = VScheduler() # Scheduler is initialized here
         self.router.get("/health", tags=["health"])(lambda: {"status": "ok"})
 
         # /v1/* are public, user-facing APIs
@@ -36,7 +36,8 @@ class VServer:
 
     async def register_module(self, request: Request):
         try:
-            module_name, registered_module = await register_module_handler(self.modules, request)
+            # Pass self.scheduler to register_module_handler
+            module_name, registered_module = await register_module_handler(self.modules, self.scheduler, request)
 
         except ValueError as e:
             logger.error(f"Error registering module: {e}", exc_info=True)
@@ -54,7 +55,8 @@ class VServer:
         print(f"Module {module_name} registered successfully with mcp_configs: {registered_module['mcp_configs']}")
 
     async def response_handler(self, req: InRequest):
-        return await handle_response(self.modules, req)
+        # Pass self.scheduler to handle_response
+        return await handle_response(self.modules, self.scheduler, req)
 
 def start_server(args: ServerArgs) -> None:
     router: APIRouter = APIRouter()
