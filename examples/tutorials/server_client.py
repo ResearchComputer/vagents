@@ -13,7 +13,6 @@ if __name__ =="__main__":
             {"remote_addr": "http://localhost:48994/sse"}
         ]
     )
-    
     deep_research_payload_stream = {
         "id": "deep_research_example_001",
         "module": "vagents.contrib.modules.deep_research:DeepResearch",

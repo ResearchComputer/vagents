@@ -56,7 +56,7 @@ class DeepResearch(VModule):
             api_key=os.environ.get("RC_API_KEY", ""),
         ))
         
-        self.round_limit = 10
+        self.round_limit = 2
         self.override_parameters = {
             'md': {
                 'c': "0",

@@ -19,3 +19,4 @@ prompt_toolkit
 rich
 jsonref
 docker
+tqdm

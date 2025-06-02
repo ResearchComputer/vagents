@@ -145,7 +145,7 @@ class VScheduler:
         or can be awaited directly from the returned task.
         """
         # Run and enqueue in background, also return the task
-        task = asyncio.create_task(self._run_and_enqueue(req))
+        task: Task[OutResponse] = asyncio.create_task(self._run_and_enqueue(req))
         self._finished_requests[req.id] = task
         return task
 
@@ -158,7 +158,7 @@ class VScheduler:
             resp = await self._run_single(req)
         except Exception as e:
             logger.error(f"Scheduler: Unhandled error in _run_single for req {req.id}, module {req.module}: {e}", exc_info=True)
-            resp = OutResponse(
+            resp: OutResponse = OutResponse(
                 id=req.id,
                 input=req.input,
                 module=req.module,
@@ -178,9 +178,10 @@ class VScheduler:
         including those added via add_request.
         """
         while True:
-            resp = await self._response_queue.get()
+            resp: OutResponse = await self._response_queue.get()
             yield resp
-            self._response_queue.task_done() # Notify queue that item processing is complete
+            self._response_queue.task_done() 
+            # Notify queue that item processing is complete
             # Clean up from finished_requests if the task is truly done.
             # This might need more robust tracking if tasks can be cancelled or have other states.
             # For now, popping here assumes one response per request.

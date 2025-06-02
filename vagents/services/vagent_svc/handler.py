@@ -176,7 +176,7 @@ async def handle_response(
                 logger.info(f"Using GraphExecutor directly for module {module_name} (req_id: {req.id}).")
                 # executor.run will be changed to an async generator
                 response_generator = executor.run([req]) 
-            else: # Fallback to direct forward call if no executor
+            else:
                 logger.info(f"Using direct module.forward() for module {module_name} (req_id: {req.id}).")
                 response_generator = module_instance.forward(req)
             
