@@ -60,6 +60,8 @@ class LMManager:
             response_format=response_format,
             **kwargs
         )
+        if response_format and hasattr(response_format, "model_json_schema"):
+            res = response_format.parse_raw(res)
         if tools:
             return await res.__anext__()
         else:

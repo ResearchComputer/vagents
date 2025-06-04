@@ -12,7 +12,6 @@ from vagents.managers import MCPManager, MCPServerArgs
 
 from .tool import parse_tool_parameters
 
-
 class MCPClient:
     def __init__(self, serverparams: List[MCPServerArgs]) -> None:
         self.manager = MCPManager()
@@ -42,7 +41,10 @@ class MCPClient:
     async def list_tools(self, hide_tools: List[str] = None):
         if self._tools is None:
             self._tools, self._tools_server_mapping = await self.fetch_tools()
-        return [x for x in self._tools if x.name not in hide_tools]
+        if hide_tools is not None:
+            return [x for x in self._tools if x.name not in hide_tools]
+        else:
+            return self._tools
 
     async def call_tool(self, *args, **kwargs):
         tool_name = kwargs.get("name") or kwargs.get("tool_name")
@@ -76,7 +78,7 @@ class MCPClient:
         typed_parameters = parse_tool_parameters(
             tool_spec=tool_spec, parameters=parameters
         )
-        print(f"[{tool_name}] typed_parameters: {typed_parameters}")
+        logger.debug(f"[{tool_name}] typed_parameters: {typed_parameters}")
         try:
             transport: SSETransport = SSETransport(url=first_server)
             

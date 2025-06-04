@@ -1,7 +1,7 @@
 import os
 import inspect
 from typing import List, AsyncGenerator, Dict, Any
-from vagents.core import VModule, VModuleConfig, MCPClient, MCPServerArgs, LLM, InRequest, Session # Removed OutResponse as it's not directly returned by forward anymore
+from vagents.core import VModule, VModuleConfig, MCPClient, MCPServerArgs, LLM, InRequest, Session
 from vagents.managers import LMManager
 from vagents.utils import logger
 
@@ -28,6 +28,7 @@ def finalize(query: str, **kwargs) ->str:
     You are a helpful assistant in the DeepResearch module.
     """
     return f"Please finalize the information you have gathered so far. The information you have is: {query}. Based on the actions you have taken: {kwargs['history']}. Return the final result in pure text format with nothing else."
+
 class DeepResearch(VModule):
     def __init__(self,
                  default_model: str="meta-llama/Llama-3.3-70B-Instruct",

@@ -158,7 +158,10 @@ class LLM:
                     if tools:
                         result = result['choices'][0]['message']["tool_calls"]
                     else:
-                        result = result["choices"][0]["message"]["content"]
+                        if result["choices"][0]["message"]["content"] is None:
+                            result = result["choices"][0]["message"]["reasoning_content"]
+                        else:
+                            result = result["choices"][0]["message"]["content"]
                     yield result
 
     def _post_process(
@@ -202,6 +205,7 @@ class LLM:
             response_format,
             stream=stream,
         )
+        
         if not stream and not tools:
             result = None
             async for chunk in gen:
