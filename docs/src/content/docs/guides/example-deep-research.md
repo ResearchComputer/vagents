@@ -8,11 +8,11 @@ description: A guide in my new Starlight docs site.
 Make sure you have `docker` installed and running. The following example also relies on an external LLM service. Please set the following environment variables:
 
 ```bash
-export RC_API_BASE="https://api.swissai.cscs.ch/v1" # Replace with your API base URL
-export RC_API_KEY="sk-rc-[...]" # Replace with your API key
+export RC_API_BASE="https://api.swissai.cscs.ch/v1"
+export RC_API_KEY="sk-rc-[...]"
 ```
 
-Then please clone the vagents repository:
+Then, please clone the `vagents` repository:
 
 ```bash
 git clone git@github.com:vagents-ai/vagents.git && cd vagents
@@ -21,21 +21,20 @@ pip install -e .
 
 ### Run the Search Service
 
-We need to run the search service that can fetch content from the internet. We use two docker containers: One for search (searxng) and one for crawling (crawl4ai).
-
+We need to run a search service that can fetch content from the internet. We use two Docker containers: one for search ([searxng](https://github.com/searxng/searxng)) and one for crawling ([crawl4ai](https://docs.crawl4ai.com/)).
 
 ```bash
 bash tools/background_tasks/searxng/start_crawl4ai.sh
 bash tools/background_tasks/searxng/start_searxng.sh
 ```
 
-These two commands will start the search and crawling services in the background inside docker containers. They will listen on ports 8080 and 11235 repectively. You can check if they are running by running:
+These two commands will start the search and crawling services in the background, inside Docker containers. They will listen on ports 8080 and 11235, respectively. You can check if they are running by executing the following command:
 
 ```bash
 docker ps
 ```
 
-and you should see two containers running:
+You should see output similar to this, indicating two running containers:
 
 ```bash
 CONTAINER ID   IMAGE                                 COMMAND                  CREATED        STATUS                      PORTS                                                     NAMES
@@ -45,7 +44,7 @@ CONTAINER ID   IMAGE                                 COMMAND                  CR
 
 ### Run the Deep Research Module with MCP
 
-We will use [Model Context Protocol](https://modelcontextprotocol.io/introduction) to communicate with the search service. 
+We will use [Model Context Protocol](https://modelcontextprotocol.io/introduction) to communicate with the search service.
 
 ```python
 from vagents.core import InRequest
@@ -76,10 +75,10 @@ if __name__ == "__main__":
     pprint_markdown(res.output)
 ```
 
-Here, we import the `LocalResearch` module from `vagents.contrib`. We setup the default model we want to use for this module, and we define a few MCP configurations. Vagents supports both remote and local MCP configurations: 1) If remote, we only specify the address 2) If local, we specify the command to run and the environment variables to set. In this case, Vagents will run the command in a docker container and connect to the remote service via HTTP protocol.
+Here, we import the `LocalResearch` module from `vagents.contrib`. We set up the default model we want to use for this module and define a few MCP configurations. Vagents supports both remote and local MCP configurations: 1) For remote configurations, we only specify the address. 2) For local configurations, we specify the command to run and the environment variables to set. In this case, Vagents will run the command in a Docker container and connect to the service via the HTTP protocol.
 
 :::tip
-Since VAgents always run MCP servers in a docker container and communicate with them via HTTP, you can easily reuse the MCP servers. For example, in the above example, VAgents starts the `mcp-searxng` server in a docker container and connects to it via HTTP. Once the server is running and you get the port it is listening on (from the `docker ps` command), you can use it in other VAgents modules or even in your own code, e.g., you can specify the `remote_addr` in the `mcp_configs` to connect to the running MCP server.
+Since Vagents always runs MCP servers in a Docker container and communicates with them via HTTP, you can easily reuse these MCP servers. For example, in the code above, Vagents starts the `mcp-searxng` server in a Docker container and connects to it via HTTP. Once the server is running and you obtain the port it is listening on (from the `docker ps` command), you can use it in other Vagents modules or even in your own code. For instance, you can specify the `remote_addr` in the `mcp_configs` to connect to the running MCP server.
 :::
 
 ### Local Research Module
