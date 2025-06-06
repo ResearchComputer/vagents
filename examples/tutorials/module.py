@@ -1,59 +1,90 @@
 import os
-from vagents.core import VModule, VModuleConfig, InRequest, OutResponse, LLM
-from vagents.executor import GraphExecutor, compile_to_graph
+import json
+from typing import AsyncGenerator
 from vagents.managers import LMManager
-from timeit import default_timer as timer
+from vagents.core import VModule, VModuleConfig, InRequest, OutResponse, LLM
+from vagents.utils import pprint_markdown
 
-class ChatModule(VModule):
-    def __init__(self):
-        super().__init__(config=VModuleConfig(enable_async=False))
-        llm = LLM(
-            model_name="Qwen/Qwen3-8B",
+def search_wikipedia(keyword) -> str:
+    """
+    Function to search Wikipedia for a keyword.
+    """
+    import wikipedia
+    try:
+        results = wikipedia.search(keyword)
+        if results:
+            summaries = []
+            for res in results:
+                try:
+                    summary = wikipedia.summary(res, sentences=5)
+                    summaries.append(summary)
+                except Exception as e:
+                    pass
+            return "\n\n".join(summaries)
+        else:
+            return f"No results found for '{keyword}'."
+    except Exception as e:
+        return f"Error searching Wikipedia: {str(e)}"
+
+def generate_query(query: str, **kwargs) -> str:
+    """
+    Generate a search query based on the input text. The query will be sent to wikipedia.
+    """
+    return f"Generate a concise search query for the following query: {query}. Return the query only, without any additional text."
+
+def summary(query: str, **kwargs) -> str:
+    """
+    Generate a summary for the given query.
+    """
+    return f"Summarize the following text:\n{query}"
+
+class RAGModule(VModule):
+    def __init__(self, default_model: str = "meta-llama/Llama-3.3-70B-Instruct") -> None:
+        super().__init__(config=VModuleConfig())
+        self.default_model = default_model
+        self.models = LMManager()
+        self.models.add_model(LLM(
+            model_name=self.default_model,
             base_url=os.environ.get("RC_API_BASE", ""),
             api_key=os.environ.get("RC_API_KEY", ""),
-        )
-        self.models = LMManager()
-        self.models.add_model(llm)        
-
-    async def forward(self, query: InRequest) -> OutResponse:
-        res = await self.models.call("Qwen/Qwen3-8B", messages=[{"role": "user", "content": query.input}])
-        
-        res2 = await self.models.call("Qwen/Qwen3-8B", [{"role": "user", "content": query.input}])
-        return OutResponse(
-            output=f"{res}\n\n{res2}",
-            id=query.id,
-            input=query.input,  
-            module=query.module,
-        )
-
-if __name__ == "__main__":
-    import asyncio
-    chat_module = ChatModule()
-    query = InRequest(
-        id="1",
-        input="What is the capital of France?",
-        module="ChatModule"
-    )
-    start = timer()
-    response = asyncio.run(chat_module.forward(query))
-    end = timer()
+        ))
     
-    print(f"Time taken: {end - start} seconds")
-    compiled_dr = compile_to_graph(chat_module.forward)
-    print(f"Compiled graph: {compiled_dr}")
-
-    ge = GraphExecutor(
-        compiled_dr, module_instance=chat_module
+    async def forward(self, query: InRequest) -> AsyncGenerator[OutResponse, None]:
+        search_query = await  self.models.invoke(
+            generate_query,
+            model_name=self.default_model,
+            query=query.input,
+            tools=[search_wikipedia],
+            **query.additional
+        )
+        assert search_query[0]['function']['name'] == "search_wikipedia", \
+            f"Expected function name 'search_wikipedia', got {search_query[0]['function']['name']}"
+        search_query = json.loads(search_query[0]['function']['arguments'])['keyword']
+        search_result = search_wikipedia(search_query)
+        
+        summary_result = await self.models.invoke(
+            summary,
+            model_name=self.default_model,
+            query=search_result,
+            **query.additional
+        )
+        return OutResponse(
+            id=query.id,
+            input=query.input,
+            output=summary_result,
+            module=query.module,
+            additional=query.additional
+        )
+        
+if __name__=="__main__":
+    import asyncio
+    req = InRequest(
+        id="test",
+        input="Who is Alan Turing?",
+        module="RAGModule",
     )
-    start = timer()
-    outputs = ge.run(
-        [
-            InRequest(
-                id="test_query",
-                input="What is the capital of France?",
-                module="ChatModule",
-            )
-        ]
+    rag: RAGModule = RAGModule(
+        default_model="meta-llama/Llama-3.3-70B-Instruct"
     )
-    end = timer()
-    print(f"Time taken for GraphExecutor: {end - start} seconds")
+    res = asyncio.run(rag(req))
+    pprint_markdown(res.output)

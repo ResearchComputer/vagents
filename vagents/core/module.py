@@ -16,5 +16,9 @@ class VModule:
             pass
 
     @abstractmethod
-    def forward(self, *args, **kwargs):
+    async def forward(self, *args, **kwargs):
         ...
+    
+    async def __call__(self, *args, **kwargs):
+        return await self.forward(*args, **kwargs)
+

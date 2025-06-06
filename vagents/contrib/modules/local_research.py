@@ -1,11 +1,11 @@
 import os
 import json
+from vagents.utils import logger
 from vagents.managers import LMManager
 from typing import AsyncGenerator, List
 from vagents.contrib.modules.utils import get_current_date
 from vagents.contrib.functions import summarize, finalize
 from vagents.core import VModule, VModuleConfig, MCPClient, MCPServerArgs, LLM, InRequest, Session, OutResponse
-from vagents.utils import logger
 
 from pydantic import BaseModel
 

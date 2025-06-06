@@ -1,13 +1,14 @@
 from vagents.core import InRequest
 from vagents.contrib import LocalResearch
 from vagents.utils import pprint_markdown
+
 default_model = "Qwen/Qwen3-32B"
 
 mcp_configs = [
     {"remote_addr": "http://localhost:11235/mcp/sse"},
-    {"remote_addr": "http://localhost:48994/sse"}
+    {"remote_addr": "http://localhost:22445/sse"},
+    # {"command": "pipx", "args": ["run", "mcp-searxng"], "envs": {"SEARXNG_URL": "http://host.docker.internal:8080"}}
 ]
-
 
 if __name__ == "__main__":
     import asyncio
@@ -17,7 +18,7 @@ if __name__ == "__main__":
     )
     request: InRequest = InRequest(
         id="test_query",
-        input="Tell me about some recent advancements made by Xiaozhe Yao",
+        input="Tell me something about Swiss AI Initiative.",
         module="DeepResearch",
         additional={"round_limit": 2}
     )
