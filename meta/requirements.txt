@@ -20,3 +20,5 @@ rich
 jsonref
 docker
 tqdm
+mcp
+fastmcp
