@@ -10,12 +10,10 @@ from .worker_manager import DockerWorkerManager
 
 DEFAULT_MCP_IMAGE = "ghcr.io/xiaozheyao/vagent.mcp:0.0.1"
 
-
 class MCPServerVisibility(Enum):
     PUBLIC = "public"
     SESSION = "session"
     USER = "user"
-
 
 @dataclass
 class MCPServerArgs:

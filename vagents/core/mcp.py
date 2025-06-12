@@ -3,7 +3,7 @@ import json
 import asyncio
 import traceback
 from fastmcp import Client
-from typing import Any, List
+from typing import Any, List, Callable, Optional
 from fastmcp.client.transports import SSETransport
 
 from vagents.core import Tool
@@ -19,10 +19,11 @@ class MCPClient:
         self._tools = None
         self._tools_server_mapping = {}
 
-    async def ensure_ready(self) -> None:
+    async def ensure_ready(self, additional_tools: List[Callable]=None) -> None:
         await self.start_mcp(self.serverparams)
         self._tools, self._tools_server_mapping = await self.fetch_tools()
-
+        self._tools.extend(Tool.from_callable(tool) for tool in additional_tools or [])
+        
     async def fetch_tools(self):
         servers = self.manager.get_all_servers()
         tools = []
@@ -48,21 +49,15 @@ class MCPClient:
 
     async def call_tool(self, *args, **kwargs):
         tool_name = kwargs.get("name") or kwargs.get("tool_name")
-        
         if not tool_name:
             raise ValueError("Tool name not provided")
-
         # Initialize _tools_server_mapping if None or empty
         first_server = self._tools_server_mapping.get(tool_name)
-        if not first_server:
-            raise ValueError(f"Tool {tool_name} not found.")
-
         # Find the tool specification
         if not self._tools:
             self._tools, self._tools_server_mapping = await self.fetch_tools()
-
         tool_spec = next((x for x in self._tools if x.name == tool_name), None)
-        
+
         if not tool_spec:
             raise ValueError(f"Tool {tool_name} not found.")
 
@@ -74,29 +69,55 @@ class MCPClient:
             if tool_name in kwargs["override"]:
                 override = kwargs["override"][tool_name]
                 parameters.update(override)
-        
+
         typed_parameters = parse_tool_parameters(
             tool_spec=tool_spec, parameters=parameters
         )
         logger.debug(f"[{tool_name}] typed_parameters: {typed_parameters}")
-        try:
-            transport: SSETransport = SSETransport(url=first_server)
-            
-            async with Client(transport) as client:
-                response = await client.call_tool(
-                    name=tool_name,
-                    arguments=typed_parameters,
-                )
-                # Process the response
-                if isinstance(response, List):
-                    responses = [parse_response(r) for r in response]
-                    responses = "\n\n".join(responses)
-                return responses
 
-        except Exception as e:
-            traceback.print_exc()
-            logger.error(f"Error calling tool [{tool_name}]: {e}.")
-            return f"Error calling tool: {e}"
+        response = await self._execute_tool(
+            server=first_server,
+            tool_name=tool_name,
+            typed_parameters=typed_parameters,
+        )
+
+        return response
+
+    async def _execute_tool(
+            self,
+            server: Optional[str],
+            tool_name: str,
+            typed_parameters: dict,
+        ):
+        if server:
+            try:
+                transport: SSETransport = SSETransport(url=server)
+                async with Client(transport) as client:
+                    responses = await client.call_tool(
+                        name=tool_name,
+                        arguments=typed_parameters,
+                    )
+                    if isinstance(responses, List):
+                        responses = [parse_mcp_response(r) for r in responses]
+                        responses = "\n\n".join(responses)
+                    return responses
+            except Exception as e:
+                logger.error(f"Error calling tool {tool_name} on server {server}: {e}")
+                logger.error(traceback.format_exc())
+                raise e
+        else:
+            # execute the tool directly
+            tool = [x for x in self._tools if x.name == tool_name]
+            if not tool:
+                raise ValueError(f"Tool {tool_name} not found.")
+            tool = tool[0]
+            try:
+                response = await tool.func(**typed_parameters)
+                return response
+            except Exception as e:
+                logger.error(f"Error executing tool {tool_name}: {e}")
+                logger.error(traceback.format_exc())
+                raise e
 
     async def start_mcp(self, args: List[MCPServerArgs]):
         tasks = [
@@ -112,7 +133,7 @@ class MCPClient:
             await asyncio.gather(*tasks)
 
 
-def parse_response(resp) -> str:
+def parse_mcp_response(resp) -> str:
     if isinstance(resp, mcp.types.TextContent):
         return resp.text
     elif isinstance(resp, mcp.types.ImageContent):
