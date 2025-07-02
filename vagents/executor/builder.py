@@ -25,7 +25,9 @@ class GraphBuilder:
         else:
             stmts = tree.body
         flat = sorted(((stmt.lineno, stmt) for stmt in stmts), key=lambda x: x[0])
-        entry = self._build_from_flat(flat, next_node=ReturnNode(None)) # Ensure a default return for the graph
+        entry = self._build_from_flat(
+            flat, next_node=ReturnNode(None)
+        )  # Ensure a default return for the graph
         return Graph(entry)
 
     def _build_from_flat(self, flat: list[tuple[int, ast.AST]], next_node):
@@ -68,7 +70,9 @@ class GraphBuilder:
                 # Relink all fall-through paths of the previous logical statement block (last_node_in_block)
                 # that were pointing to the general block exit (block_exit_target_for_linking),
                 # to instead point to the current node (`node`).
-                self._relink_node_successors(last_node_in_block, block_exit_target_for_linking, node)
+                self._relink_node_successors(
+                    last_node_in_block, block_exit_target_for_linking, node
+                )
                 # Nodes like ReturnNode don't have a 'next' to link from.
 
             stack[-1] = (_block_indent, block_exit_target_for_linking, node)
@@ -96,10 +100,11 @@ class GraphBuilder:
             ):  # Only ActionNodes typically fall through like this
                 final_last_node.next = final_exit_node
 
-        # print(f"stack: {stack}") # Original debug print
         return head_of_sequence
 
-    def _relink_node_successors(self, current_node, old_target, new_target, visited=None):
+    def _relink_node_successors(
+        self, current_node, old_target, new_target, visited=None
+    ):
         if visited is None:
             visited = set()
 
@@ -108,7 +113,9 @@ class GraphBuilder:
         visited.add(current_node)
 
         # Nodes that terminate flow or have specific jump targets handled by their creation logic
-        if isinstance(current_node, (ReturnNode, BreakNode)): # Add ContinueNode if it exists and behaves similarly
+        if isinstance(
+            current_node, (ReturnNode, BreakNode)
+        ):  # Add ContinueNode if it exists and behaves similarly
             return
 
         if isinstance(current_node, ConditionNode):
@@ -117,21 +124,27 @@ class GraphBuilder:
                 current_node.true_next = new_target
             # Else, recurse if not None (it might be already pointing to something else)
             elif current_node.true_next is not None:
-                self._relink_node_successors(current_node.true_next, old_target, new_target, visited.copy()) # Use copy of visited for independent branch traversal
+                self._relink_node_successors(
+                    current_node.true_next, old_target, new_target, visited.copy()
+                )  # Use copy of visited for independent branch traversal
 
             if current_node.false_next == old_target:
                 current_node.false_next = new_target
             elif current_node.false_next is not None:
-                self._relink_node_successors(current_node.false_next, old_target, new_target, visited.copy()) # Use copy of visited
+                self._relink_node_successors(
+                    current_node.false_next, old_target, new_target, visited.copy()
+                )  # Use copy of visited
 
-        elif hasattr(current_node, 'next'): # ActionNode, etc.
+        elif hasattr(current_node, "next"):  # ActionNode, etc.
             if current_node.next == old_target:
                 current_node.next = new_target
             # If current_node.next is not old_target and not None, it means this node is part of
-            # an internal sequence. We should still recurse on its .next, because that sequence 
+            # an internal sequence. We should still recurse on its .next, because that sequence
             # might *eventually* lead to old_target.
             elif current_node.next is not None:
-                 self._relink_node_successors(current_node.next, old_target, new_target, visited)
+                self._relink_node_successors(
+                    current_node.next, old_target, new_target, visited
+                )
         # If a node has no 'next' attribute and is not a ConditionNode/Return/Break,
         # it's implicitly done, or it's an error/unhandled type.
 
@@ -154,7 +167,9 @@ class GraphBuilder:
         # Yield statement
         if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Yield):
             # If stmt.value.value is None, it's a bare 'yield'
-            yield_expr_src = ast.unparse(stmt.value.value) if stmt.value.value else "None"
+            yield_expr_src = (
+                ast.unparse(stmt.value.value) if stmt.value.value else "None"
+            )
             return YieldNode(yield_expr_src, next_node)
 
         # If / else
@@ -197,13 +212,14 @@ class GraphBuilder:
             # The actual iteration logic (next() and StopIteration) is embedded.
             # `next_node` is the exit point if the loop terminates normally.
             loop_condition_surrogate = ConditionNode(
-                f"has_next('{iter_var}', __execution_context__)" # Pass iter_var as string and context
+                f"has_next('{iter_var}', __execution_context__)"  # Pass iter_var as string and context
             )
 
             self.loop_stack.append((loop_condition_surrogate, next_node))
 
             init_node = ActionNode(
-                f"__execution_context__['{iter_var}'] = iter({iter_src})", loop_condition_surrogate
+                f"__execution_context__['{iter_var}'] = iter({iter_src})",
+                loop_condition_surrogate,
             )
 
             assign_target_code = f"{ast.unparse(stmt.target)} = next(__execution_context__['{iter_var}'])"

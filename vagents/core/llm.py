@@ -21,6 +21,7 @@ backoff_logger = logging.getLogger("backoff")
 
 VAGENT_MAX_BACKOFF_TIME = int(os.environ.get("VAGENT_MAX_BACKOFF_TIME", 5 * 60))
 
+
 class LLM:
     def __init__(
         self,
@@ -33,6 +34,28 @@ class LLM:
         self.api_key = api_key
         # Adding default_model attribute to avoid KeyError
         self.default_model = model_name
+        # Create a shared session with higher connection limits
+        self._session = None
+
+    async def _get_session(self):
+        """Get or create a shared aiohttp session with optimized connection limits."""
+        if self._session is None or self._session.closed:
+            # Create connector with higher connection limits
+            connector = aiohttp.TCPConnector(
+                limit=100,  # Total connection pool size
+                limit_per_host=50,  # Max connections per host
+                keepalive_timeout=60,  # Keep connections alive longer
+                enable_cleanup_closed=True,
+            )
+            self._session = aiohttp.ClientSession(
+                connector=connector, timeout=aiohttp.ClientTimeout(total=600)
+            )
+        return self._session
+
+    async def close(self):
+        """Close the aiohttp session."""
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     def _prepare_input(
         self,
@@ -124,45 +147,43 @@ class LLM:
             response_format,
             stream=stream,
         )
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                endpoint, json=payload, headers=headers, timeout=600
-            ) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    raise aiohttp.ClientError(f"Request failed [{resp.status}]: {text}")
-                if stream:
-                    try:
-                        async for chunk in resp.content:
-                            chunk = chunk.decode().replace("data: ", "").strip()
-                            if not chunk:
-                                continue
-                            if chunk == "[DONE]":
-                                return 
-                            chunk = json.loads(chunk)
-                            if "choices" not in chunk:
-                                continue
-                            chunk = chunk["choices"]
-                            if len(chunk) == 0:
-                                continue
-                            chunk = chunk[0]["delta"]["content"]
-                            if chunk:
-                                yield chunk
-                    except aiohttp.client_exceptions.ClientPayloadError as e:
-                        logger.error(f"Streaming payload error: {e}")
-                        # Stop streaming on payload errors
-                        return
+
+        session = await self._get_session()
+        async with session.post(endpoint, json=payload, headers=headers) as resp:
+            if resp.status != 200:
+                text = await resp.text()
+                raise aiohttp.ClientError(f"Request failed [{resp.status}]: {text}")
+            if stream:
+                try:
+                    async for chunk in resp.content:
+                        chunk = chunk.decode().replace("data: ", "").strip()
+                        if not chunk:
+                            continue
+                        if chunk == "[DONE]":
+                            return
+                        chunk = json.loads(chunk)
+                        if "choices" not in chunk:
+                            continue
+                        chunk = chunk["choices"]
+                        if len(chunk) == 0:
+                            continue
+                        chunk = chunk[0]["delta"]["content"]
+                        if chunk:
+                            yield chunk
+                except aiohttp.client_exceptions.ClientPayloadError as e:
+                    logger.error(f"Streaming payload error: {e}")
+                    # Stop streaming on payload errors
+                    return
+            else:
+                result = await resp.json()
+                if tools:
+                    result = result["choices"][0]["message"]["tool_calls"]
                 else:
-                    result = await resp.json()
-                    if tools:
-                        result = result['choices'][0]['message']["tool_calls"]
+                    if result["choices"][0]["message"]["content"] is None:
+                        result = result["choices"][0]["message"]["reasoning_content"]
                     else:
-                        if result["choices"][0]["message"]["content"] is None:
-                            result = result["choices"][0]["message"]["reasoning_content"]
-                        else:
-                            result = result["choices"][0]["message"]["content"]
-                    yield result
+                        result = result["choices"][0]["message"]["content"]
+                yield result
 
     def _post_process(
         self,
@@ -205,7 +226,7 @@ class LLM:
             response_format,
             stream=stream,
         )
-        
+
         if not stream and not tools:
             result = None
             async for chunk in gen:
