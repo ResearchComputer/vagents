@@ -42,23 +42,24 @@ class Tool:
             func=func,  # Functionality to be defined later
             required=input_schema.get("required", []),
         )
-    
+
     @classmethod
-    def from_callable(self, func: Callable) -> "Tool":
+    def from_callable(cls, func: Callable) -> "Tool":
         """
         Create a Tool instance from a callable function.
         """
         signature = parse_function_signature(func)
-        # docstring is used for description, if available
-        if not signature.get("description"):
-            signature["description"] = func.__doc__ or "No description provided."
-        
-        return Tool(
-            name=signature["function"]["name"],
-            description=signature["function"]["description"],
-            parameters=signature.get("parameters", {}),
+        # The parse_function_signature returns the structure with function info nested
+        function_info = signature["function"]
+        parameters = signature["function"]["parameters"]["properties"]
+        required = signature["function"]["parameters"]["required"]
+
+        return cls(
+            name=function_info["name"],
+            description=function_info["description"],
+            parameters=parameters,
             func=func,
-            required=signature.get("required", []),
+            required=required,
         )
 
     def __repr__(self) -> str:

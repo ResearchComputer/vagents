@@ -15,10 +15,7 @@ class LMManager:
         self._queue_processor_task = None
 
     def set_max_concurrency(self, max_concurrent_requests: int):
-        """Update the maximum number of concurrent requests allowed."""
         self.max_concurrent_requests = max_concurrent_requests
-        # Note: Creating a new semaphore will reset the current count
-        # This means existing requests won't be affected, only new ones
         self.semaphore = asyncio.Semaphore(max_concurrent_requests)
 
     async def _process_queue(self):

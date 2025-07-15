@@ -12,6 +12,7 @@ from vagents.managers import MCPManager, MCPServerArgs
 
 from .tool import parse_tool_parameters
 
+
 class MCPClient:
     def __init__(self, serverparams: List[MCPServerArgs]) -> None:
         self.manager = MCPManager()
@@ -19,11 +20,11 @@ class MCPClient:
         self._tools = None
         self._tools_server_mapping = {}
 
-    async def ensure_ready(self, additional_tools: List[Callable]=None) -> None:
+    async def ensure_ready(self, additional_tools: List[Callable] = None) -> None:
         await self.start_mcp(self.serverparams)
         self._tools, self._tools_server_mapping = await self.fetch_tools()
         self._tools.extend(Tool.from_callable(tool) for tool in additional_tools or [])
-        
+
     async def fetch_tools(self):
         servers = self.manager.get_all_servers()
         tools = []
@@ -63,8 +64,10 @@ class MCPClient:
 
         # Convert parameters to the correct types based on the tool's schema
         parameters = kwargs.get("parameters", {})
-        parameters = json.loads(parameters) if isinstance(parameters, str) else parameters
-        
+        parameters = (
+            json.loads(parameters) if isinstance(parameters, str) else parameters
+        )
+
         if kwargs.get("override"):
             if tool_name in kwargs["override"]:
                 override = kwargs["override"][tool_name]
@@ -84,11 +87,11 @@ class MCPClient:
         return response
 
     async def _execute_tool(
-            self,
-            server: Optional[str],
-            tool_name: str,
-            typed_parameters: dict,
-        ):
+        self,
+        server: Optional[str],
+        tool_name: str,
+        typed_parameters: dict,
+    ):
         if server:
             try:
                 transport: SSETransport = SSETransport(url=server)
@@ -120,14 +123,15 @@ class MCPClient:
                 raise e
 
     async def start_mcp(self, args: List[MCPServerArgs]):
-        tasks = [
-            self.manager.start_mcp_server(arg, wait_until_ready=True)
-            for arg in args
-            if arg.command
-        ]
+        tasks = []
+        for arg in args:
+            if arg.command:
+                tasks.append(self.manager.start_mcp_server(arg, wait_until_ready=True))
+
         for arg in args:
             if arg.remote_addr:
                 await self.manager.register_running_mcp_server(arg.remote_addr)
+
         # If there are no tasks, we don't need to await anything
         if tasks:
             await asyncio.gather(*tasks)

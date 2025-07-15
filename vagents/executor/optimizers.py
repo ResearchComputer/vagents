@@ -11,7 +11,9 @@ def optimize_await_sequences(graph):
     cur = head
     # Collect sequential await assignments
     while isinstance(cur, ActionNode):
-        m = re.match(r"(\w+)\s*=\s*await\s+(.+)", cur.source)
+        # Handle both simple assignments and type-annotated assignments
+        # Pattern matches: var = await expr OR var: type = await expr
+        m = re.match(r"(\w+)(?:\s*:\s*\w+)?\s*=\s*await\s+(.+)", cur.source)
         if not m:
             break
         var, expr = m.groups()
@@ -24,12 +26,7 @@ def optimize_await_sequences(graph):
         vars_list = ", ".join(var for _, var, _ in seq)
         combined_src = (
             "import asyncio\n"
-            "try:\n"
-            "    loop = asyncio.get_event_loop()\n"
-            "except RuntimeError:\n"
-            "    loop = asyncio.new_event_loop()\n"
-            "    asyncio.set_event_loop(loop)\n"
-            f"__results = loop.run_until_complete(asyncio.gather({exprs}))\n"
+            f"__results = await asyncio.gather({exprs})\n"
             f"{vars_list} = __results"
         )
         new_node = ActionNode(combined_src, cur)

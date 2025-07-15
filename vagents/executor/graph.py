@@ -62,7 +62,7 @@ class Graph:
             elif isinstance(node, BreakNode):
                 # Assuming target in BreakNode should ideally not be None
                 lines.append(
-                    f"    --target--> {node.target.label() if node.target else '<unspecified_target>'}"
+                    f"    --target--> {node.target if node.target else '<unspecified_target>'}"
                 )
                 add_to_queue(node.target)
             elif isinstance(node, ReturnNode):
