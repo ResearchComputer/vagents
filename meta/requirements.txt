@@ -10,7 +10,6 @@ typer
 fastapi
 pyzmq
 psutil
-dask[distributed]
 uuid7
 langfuse
 anyio
