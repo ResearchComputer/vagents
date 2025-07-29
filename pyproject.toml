@@ -11,7 +11,7 @@ authors = [
 dynamic = ["dependencies", "optional-dependencies", "version"]
 
 [project.scripts]
-vagents = "vagents.entrypoint.cli:app"
+vagents = "vagents.entrypoint.main:app"
 
 [tool.setuptools.dynamic]
 dependencies = { file = ["meta/requirements.txt"] }
