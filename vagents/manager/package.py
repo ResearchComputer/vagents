@@ -1,11 +1,3 @@
-"""
-Package Manager for VAgents
-
-This module provides functionality to pull and manage code packages from remote git repositories.
-Packages are modular functions that can be dynamically loaded and executed, such as code review tools,
-data analysis functions, or any other reusable functionality.
-"""
-
 import os
 import sys
 import json
@@ -14,37 +6,23 @@ import tempfile
 import importlib
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Callable, Union
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from urllib.parse import urlparse
-import uuid
 import inspect
 import datetime
+import re
+from pydantic import BaseModel, Field as PydanticField, field_validator
 
 try:
     import yaml
 except ImportError:
     yaml = None
 
-try:
-    from loguru import logger
-except ImportError:
-    import logging
+import logging
 
-    logger = logging.getLogger(__name__)
-
-try:
-    from pydantic import BaseModel, Field as PydanticField, validator
-except ImportError:
-    # Fallback if pydantic is not available
-    class BaseModel:
-        pass
-
-    def PydanticField(*args, **kwargs):
-        return None
-
-    def validator(*args, **kwargs):
-        return lambda x: x
+logger = logging.getLogger(__name__)
+logger.setLevel(os.environ.get("LOGLEVEL", "WARN").upper())
 
 
 @dataclass
@@ -128,7 +106,8 @@ class PackageMetadata(BaseModel):
     )
     tags: List[str] = PydanticField(default=[], description="Package tags")
 
-    @validator("repository_url")
+    @field_validator("repository_url")
+    @classmethod
     def validate_repository_url(cls, v):
         """Validate that repository_url is a valid git URL"""
         parsed = urlparse(v)
@@ -136,7 +115,8 @@ class PackageMetadata(BaseModel):
             raise ValueError("repository_url must be a valid URL")
         return v
 
-    @validator("entry_point")
+    @field_validator("entry_point")
+    @classmethod
     def validate_entry_point(cls, v):
         """Validate entry point format"""
         if "." not in v:
@@ -212,12 +192,84 @@ class PackageExecutionContext:
                 raise TypeError(f"{function_name} is neither a function nor a class")
 
         except Exception as e:
+
             logger.error(f"Error executing package {self.config.name}: {e}")
             raise
 
 
 class GitRepository:
     """Git repository operations"""
+
+    @staticmethod
+    def parse_repo_url_with_subdir(
+        repo_url_with_subdir: str,
+    ) -> Tuple[str, Optional[str]]:
+        """Parse repository URL that may contain a subdirectory path
+
+        Args:
+            repo_url_with_subdir: URL like 'git@github.com:user/repo.git/subdir' or
+                                 'https://github.com/user/repo.git/subdir'
+
+        Returns:
+            Tuple[str, Optional[str]]: (clean_repo_url, subdirectory_path)
+        """
+        # Handle SSH URLs (git@github.com:user/repo.git/subdir)
+        ssh_pattern = r"^(git@[^:]+:[^/]+/[^/]+\.git)(/.*)?$"
+        ssh_match = re.match(ssh_pattern, repo_url_with_subdir)
+        if ssh_match:
+            repo_url = ssh_match.group(1)
+            subdir = ssh_match.group(2)
+            if subdir:
+                subdir = subdir.lstrip("/")
+            return repo_url, subdir if subdir else None
+
+        # Handle HTTPS URLs (https://github.com/user/repo.git/subdir)
+        https_pattern = r"^(https://[^/]+/[^/]+/[^/]+\.git)(/.*)?$"
+        https_match = re.match(https_pattern, repo_url_with_subdir)
+        if https_match:
+            repo_url = https_match.group(1)
+            subdir = https_match.group(2)
+            if subdir:
+                subdir = subdir.lstrip("/")
+            return repo_url, subdir if subdir else None
+
+        # Handle URLs without .git extension
+        # SSH: git@github.com:user/repo/subdir
+        ssh_no_git_pattern = r"^(git@[^:]+:[^/]+/[^/]+)(/.*)?$"
+        ssh_no_git_match = re.match(ssh_no_git_pattern, repo_url_with_subdir)
+        if ssh_no_git_match and not ssh_no_git_match.group(1).endswith(".git"):
+            base = ssh_no_git_match.group(1)
+            subdir_part = ssh_no_git_match.group(2)
+
+            # Split the path part to separate repo from subdir
+            if subdir_part:
+                parts = subdir_part.strip("/").split("/")
+                if parts:
+                    # First part might be part of repo name, rest is subdir
+                    repo_url = base + ".git"
+                    subdir = "/".join(parts) if parts else None
+                    return repo_url, subdir
+            else:
+                return base + ".git", None
+
+        # HTTPS: https://github.com/user/repo/subdir
+        https_no_git_pattern = r"^(https://[^/]+/[^/]+/[^/]+)(/.*)?$"
+        https_no_git_match = re.match(https_no_git_pattern, repo_url_with_subdir)
+        if https_no_git_match and not https_no_git_match.group(1).endswith(".git"):
+            base = https_no_git_match.group(1)
+            subdir_part = https_no_git_match.group(2)
+
+            if subdir_part:
+                parts = subdir_part.strip("/").split("/")
+                if parts:
+                    repo_url = base + ".git"
+                    subdir = "/".join(parts) if parts else None
+                    return repo_url, subdir
+            else:
+                return base + ".git", None
+
+        # If no pattern matches, assume it's a plain repo URL
+        return repo_url_with_subdir, None
 
     @staticmethod
     def clone(repo_url: str, target_path: Path, branch: str = "main") -> bool:
@@ -241,6 +293,43 @@ class GitRepository:
             return False
         except Exception as e:
             logger.error(f"Error cloning repository {repo_url}: {e}")
+            return False
+
+    @staticmethod
+    def extract_subdirectory(repo_path: Path, subdir: str, target_path: Path) -> bool:
+        """Extract a subdirectory from a cloned repository
+
+        Args:
+            repo_path: Path to the cloned repository
+            subdir: Subdirectory path within the repository
+            target_path: Target path to copy the subdirectory to
+
+        Returns:
+            bool: True if extraction successful, False otherwise
+        """
+        try:
+            subdir_path = repo_path / subdir
+            if not subdir_path.exists():
+                logger.error(
+                    f"Subdirectory {subdir} not found in repository {repo_path}"
+                )
+                return False
+
+            if not subdir_path.is_dir():
+                logger.error(
+                    f"Path {subdir} is not a directory in repository {repo_path}"
+                )
+                return False
+
+            # Copy the subdirectory content to target path
+            shutil.copytree(subdir_path, target_path)
+            logger.info(
+                f"Successfully extracted subdirectory {subdir} to {target_path}"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"Error extracting subdirectory {subdir}: {e}")
             return False
 
     @staticmethod
@@ -449,19 +538,29 @@ class PackageManager:
             return None
 
     def install_package(
-        self, repo_url: str, branch: str = "main", force: bool = False
+        self, repo_url_with_subdir: str, branch: str = "main", force: bool = False
     ) -> bool:
-        """Install a package from a git repository
+        """Install a package from a git repository, optionally from a subdirectory
 
         Args:
-            repo_url: Git repository URL
+            repo_url_with_subdir: Git repository URL, optionally with subdirectory path
+                                Examples:
+                                - git@github.com:user/repo.git
+                                - git@github.com:user/repo.git/packages/code-review
+                                - https://github.com/user/repo.git/packages/code-review
             branch: Git branch to use (default: main)
             force: Force reinstall if package already exists
 
         Returns:
             bool: True if installation successful, False otherwise
         """
-        logger.info(f"Installing package from {repo_url}")
+        logger.info(f"Installing package from {repo_url_with_subdir}")
+
+        # Parse the URL to extract repository URL and subdirectory
+        repo_url, subdir = GitRepository.parse_repo_url_with_subdir(
+            repo_url_with_subdir
+        )
+        logger.info(f"Parsed URL - Repository: {repo_url}, Subdirectory: {subdir}")
 
         # Create temporary directory for cloning
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -472,8 +571,17 @@ class PackageManager:
             if not GitRepository.clone(repo_url, repo_path, branch):
                 return False
 
+            # If a subdirectory is specified, extract it
+            package_source_path = repo_path
+            if subdir:
+                package_source_path = temp_path / "package"
+                if not GitRepository.extract_subdirectory(
+                    repo_path, subdir, package_source_path
+                ):
+                    return False
+
             # Validate package structure
-            config = self._validate_package_structure(repo_path)
+            config = self._validate_package_structure(package_source_path)
             if config is None:
                 return False
 
@@ -490,10 +598,13 @@ class PackageManager:
                 shutil.rmtree(package_install_path)
 
             # Copy package files
-            shutil.copytree(repo_path, package_install_path)
+            shutil.copytree(package_source_path, package_install_path)
 
-            # Get commit hash
+            # Get commit hash from the original repo
             commit_hash = GitRepository.get_commit_hash(repo_path)
+
+            # Update config to store the original URL with subdirectory
+            config.repository_url = repo_url_with_subdir
 
             # Register package
             self.registry.register_package(config, package_install_path, commit_hash)
@@ -547,10 +658,10 @@ class PackageManager:
             logger.error(f"Package {package_name} not found")
             return False
 
-        repo_url = package_info["repository_url"]
+        repo_url_with_subdir = package_info["repository_url"]
 
-        # Reinstall the package
-        return self.install_package(repo_url, branch, force=True)
+        # Reinstall the package (this will handle subdirectories automatically)
+        return self.install_package(repo_url_with_subdir, branch, force=True)
 
     def execute_package(self, package_name: str, *args, **kwargs) -> Any:
         """Execute a package function
@@ -703,8 +814,13 @@ if __name__ == "__main__":
     # Initialize package manager
     pm = PackageManager()
 
-    # Example: Install a package from a git repository
+    # Example: Install a package from a git repository (entire repo)
     # pm.install_package("https://github.com/example/code-review-package.git")
+
+    # Example: Install a package from a subdirectory in a git repository
+    # pm.install_package("git@github.com:vagents-ai/packages.git/code-review")
+    # pm.install_package("https://github.com/vagents-ai/packages.git/data-analysis")
+    # pm.install_package("git@github.com:user/monorepo.git/packages/tools/linter")
 
     # List packages
     packages = pm.list_packages()

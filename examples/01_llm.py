@@ -1,17 +1,20 @@
-from PIL import Image
-from vagents.core import multimodal
+from vagents.core import LM
 
 
-@multimodal(input_type="image", param=["frame"])
-def narrate_video(frame: Image.Image) -> str:
+def write_story(query: str) -> str:
     """You will be given a frame of a video, your task is to describe the scene, actions, and any notable details in this video frame."""
-    return f"Describing frame at index."
+    return [{"role": "user", "content": "write a story about " + query}]
 
 
 if __name__ == "__main__":
+    import asyncio
+
     # Example usage
-    frame = Image.new(
-        "RGB", (100, 100), color="blue"
-    )  # Placeholder for an actual video frame
-    description = narrate_video(frame=frame)
-    print(description)
+    async def main():
+        lm = LM(
+            name="@auto",
+        )
+        description = await lm.invoke(write_story, "a brave knight and a dragon")
+        print(description)
+
+    asyncio.run(main())

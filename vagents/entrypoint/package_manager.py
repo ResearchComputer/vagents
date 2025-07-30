@@ -9,7 +9,13 @@ import typer
 import sys
 import json
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.json import JSON
+from rich.tree import Tree
+from rich.table import Table
 
 try:
     from vagents.manager.package import PackageManager
@@ -19,10 +25,158 @@ except ImportError:
     )
     sys.exit(1)
 
+# Create console for rich output
+console = Console()
+
 # Create the typer app for package manager commands
 app = typer.Typer(
     help="VAgents Package Manager - Manage and execute code packages from git repositories"
 )
+
+
+def format_result_rich(result: Any, package_name: str) -> None:
+    """Format and display results using rich formatting"""
+    # Create a panel with the package execution result
+    console.print(
+        f"\n[bold green]✅ Package '{package_name}' executed successfully![/bold green]"
+    )
+    # Display result in a nice panel
+    if isinstance(result, dict):
+        # Create a tree structure for dictionary results
+        tree = Tree(f"[bold blue]📋 Execution Result[/bold blue]")
+        _add_dict_to_tree(tree, result)
+        console.print(
+            Panel(
+                tree, title=f"[bold]{package_name}[/bold] Output", border_style="green"
+            )
+        )
+    elif isinstance(result, str):
+        # Display string as markdown if it looks like markdown, otherwise as text
+        if any(marker in result for marker in ["#", "*", "`", "-", "|"]):
+            markdown = Markdown(result)
+            console.print(
+                Panel(
+                    markdown,
+                    title=f"[bold]{package_name}[/bold] Output",
+                    border_style="green",
+                )
+            )
+        else:
+            console.print(
+                Panel(
+                    result,
+                    title=f"[bold]{package_name}[/bold] Output",
+                    border_style="green",
+                )
+            )
+    else:
+        # For other types, convert to string and display
+        console.print(
+            Panel(
+                str(result),
+                title=f"[bold]{package_name}[/bold] Output",
+                border_style="green",
+            )
+        )
+
+
+def format_result_markdown(result: Any, package_name: str) -> str:
+    """Format results as markdown string"""
+    markdown_content = f"# Package Execution Result: {package_name}\n\n"
+    markdown_content += "## ✅ Status: Success\n\n"
+
+    if isinstance(result, dict):
+        markdown_content += "## 📋 Output\n\n"
+        markdown_content += _dict_to_markdown(result)
+    elif isinstance(result, list) or isinstance(result, tuple):
+        markdown_content += "## 📋 Output (List)\n\n"
+        for i, item in enumerate(result):
+            markdown_content += f"### Item {i + 1}\n\n"
+            if isinstance(item, dict):
+                markdown_content += _dict_to_markdown(item)
+            else:
+                markdown_content += f"```\n{item}\n```\n\n"
+    elif isinstance(result, str):
+        markdown_content += "## 📋 Output\n\n"
+        if any(marker in result for marker in ["#", "*", "`", "-", "|"]):
+            # Already markdown-like content
+            markdown_content += result + "\n\n"
+        else:
+            # Plain text, wrap in code block
+            markdown_content += f"```\n{result}\n```\n\n"
+    else:
+        markdown_content += "## 📋 Output\n\n"
+        markdown_content += f"```\n{str(result)}\n```\n\n"
+
+    return markdown_content
+
+
+def _add_dict_to_tree(
+    tree: Tree, data: Dict, max_depth: int = 3, current_depth: int = 0
+) -> None:
+    """Recursively add dictionary items to a tree"""
+    if current_depth >= max_depth:
+        tree.add("[dim]... (max depth reached)[/dim]")
+        return
+
+    for key, value in data.items():
+        if isinstance(value, dict):
+            if value:  # Only add non-empty dicts
+                branch = tree.add(f"[bold cyan]{key}[/bold cyan]")
+                _add_dict_to_tree(branch, value, max_depth, current_depth + 1)
+            else:
+                tree.add(f"[bold cyan]{key}[/bold cyan]: [dim]{{}}[/dim]")
+        elif isinstance(value, list) or isinstance(value, tuple):
+            if value:  # Only add non-empty lists
+                branch = tree.add(
+                    f"[bold yellow]{key}[/bold yellow] ([dim]{len(value)} items[/dim])"
+                )
+                for i, item in enumerate(value[:5]):  # Limit to first 5 items
+                    if isinstance(item, dict):
+                        item_branch = branch.add(f"[dim]Item {i+1}[/dim]")
+                        _add_dict_to_tree(
+                            item_branch, item, max_depth, current_depth + 1
+                        )
+                    else:
+                        branch.add(f"[dim]Item {i+1}:[/dim] {str(item)[:100]}")
+                if len(value) > 5:
+                    branch.add("[dim]... and more[/dim]")
+            else:
+                tree.add(f"[bold yellow]{key}[/bold yellow]: [dim][][/dim]")
+        else:
+            # Truncate long values
+            value_str = str(value)
+            if len(value_str) > 100:
+                value_str = value_str[:97] + "..."
+            tree.add(f"[bold green]{key}[/bold green]: {value_str}")
+
+
+def _dict_to_markdown(data: Dict, level: int = 0) -> str:
+    """Convert dictionary to markdown format"""
+    markdown = ""
+    indent = "  " * level
+
+    for key, value in data.items():
+        if isinstance(value, dict):
+            markdown += f"{indent}- **{key}**:\n"
+            markdown += _dict_to_markdown(value, level + 1)
+        elif isinstance(value, list) or isinstance(value, tuple):
+            markdown += f"{indent}- **{key}**: [{len(value)} items]\n"
+            for i, item in enumerate(value[:3]):  # Show first 3 items
+                if isinstance(item, dict):
+                    markdown += f"{indent}  - Item {i+1}:\n"
+                    markdown += _dict_to_markdown(item, level + 2)
+                else:
+                    markdown += f"{indent}  - `{str(item)[:50]}`\n"
+            if len(value) > 3:
+                markdown += f"{indent}  - ... and {len(value) - 3} more\n"
+        else:
+            value_str = str(value)
+            if len(value_str) > 200:
+                value_str = value_str[:197] + "..."
+            markdown += f"{indent}- **{key}**: `{value_str}`\n"
+
+    return markdown
 
 
 def create_package_template(name: str, output_dir: str = "."):
@@ -319,7 +473,7 @@ def search(
 
 
 @app.command()
-def execute(
+def run(
     package_name: str = typer.Argument(..., help="Name of the package to execute"),
     args: Optional[List[str]] = typer.Option(
         None, "--args", help="Arguments to pass to the package"
@@ -327,11 +481,11 @@ def execute(
     kwargs_json: Optional[str] = typer.Option(
         None, "--kwargs", help="JSON string of keyword arguments"
     ),
-    output_format: str = typer.Option(
-        "pretty", "--output", "-o", help="Output format: pretty, json"
+    format: str = typer.Option(
+        "rich", "--format", "-f", help="Output format: rich, plain, json, markdown"
     ),
 ):
-    """Execute a package."""
+    """Execute a package with optional arguments and display results."""
     try:
         pm = PackageManager()
 
@@ -346,23 +500,40 @@ def execute(
                 typer.echo("❌ Invalid JSON in --kwargs parameter", color="red")
                 raise typer.Exit(1)
 
-        typer.echo(f"Executing package '{package_name}'...")
-
         # Execute the package
         result = pm.execute_package(package_name, *execute_args, **execute_kwargs)
 
-        # Display results
-        if output_format == "json":
+        # Display results based on format
+        if format == "json":
             typer.echo(json.dumps(result, indent=2, default=str))
-        else:
+        elif format == "markdown":
+            markdown_output = format_result_markdown(result, package_name)
+            markdown = Markdown(markdown_output)
+            console.print(markdown)
+        elif format == "rich":
+            format_result_rich(result, package_name)
+        elif format == "plain":
             typer.echo("✅ Package executed successfully!", color="green")
-            typer.echo("\n📋 Execution Result:")
-            typer.echo(json.dumps(result, indent=2, default=str))
+            typer.echo(f"\n📋 Execution Result for '{package_name}':")
+            typer.echo("-" * 50)
+            if isinstance(result, dict) or isinstance(result, list):
+                typer.echo(json.dumps(result, indent=2, default=str))
+            else:
+                typer.echo(str(result))
+        else:
+            typer.echo(
+                f"❌ Unknown format: {format}. Use: rich, plain, json, markdown",
+                color="red",
+            )
+            raise typer.Exit(1)
 
     except ValueError as e:
         typer.echo(f"❌ Package not found: {e}", color="red")
         raise typer.Exit(1)
     except Exception as e:
+        import traceback
+
+        traceback.print_exc()
         typer.echo(f"❌ Error executing package: {e}", color="red")
         raise typer.Exit(1)
 

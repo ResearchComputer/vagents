@@ -12,7 +12,8 @@ dynamic = ["dependencies", "optional-dependencies", "version"]
 
 [project.scripts]
 vagents = "vagents.entrypoint.main:app"
-
+vag = "vagents.entrypoint.main:app"
+vibe = "vagents.entrypoint.package_manager:app"
 [tool.setuptools.dynamic]
 dependencies = { file = ["meta/requirements.txt"] }
 optional-dependencies.extra = { file = ["meta/requirements-extra.txt"] }
