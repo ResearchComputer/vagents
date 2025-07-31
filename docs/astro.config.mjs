@@ -12,19 +12,31 @@ export default defineConfig({
 			],
 			plugins: [starlightThemeFlexoki()],
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/vagents-ai/vagents' }],
+			defaultLocale: 'en',
+			locales: {
+				en: {
+					label: 'English',
+					lang: 'en',
+				},
+				'zh-cn': {
+					label: '简体中文',
+					lang: 'zh-CN',
+				},
+				es: {
+					label: 'Español',
+					lang: 'es',
+				},
+			},
 			sidebar: [
 				{
 					label: 'Guides',
-					items: [
-						{ label: 'Basic Programming', slug: 'guides/programming' },
-						{ label: 'Compose a Module', slug: 'guides/compose-module' },
-						{ label: 'Example: Deep Research', slug: 'guides/example-deep-research' },
-					],
-				},
-				{
-					label: 'Reference',
-					autogenerate: { directory: 'reference' },
-				},
+					translations: {
+						'zh-cn': '指南',
+						'en': 'Guides',
+						'es': 'Guías',
+					},
+					autogenerate: { directory: 'guides' },
+				}
 			],
 		}),
 	],

@@ -1,0 +1,34 @@
+---
+title: 欢迎使用 Vagents
+description: 开始使用 Starlight 构建您的文档网站。
+template: splash
+hero:
+  tagline: 恭喜您建立了一个新的 Starlight 项目！
+  actions:
+    - text: 开始使用
+      link: /zh-cn/guides/
+      icon: right-arrow
+    - text: 阅读源代码
+      link: https://github.com/vagents-ai/vagents
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## 下一步
+
+<CardGrid stagger>
+	<Card title="更新内容" icon="pencil">
+		编辑 `src/content/docs/index.mdx` 来查看此页面的变化。
+	</Card>
+	<Card title="添加新内容" icon="add-document">
+		在 `src/content/docs` 中添加 Markdown 或 MDX 文件来创建新页面。
+	</Card>
+	<Card title="配置您的网站" icon="setting">
+		编辑 `astro.config.mjs` 文件中的 Starlight 配置。
+	</Card>
+	<Card title="了解更多" icon="open-book">
+		阅读 [Starlight 文档](https://starlight.astro.build/) 了解更多信息。
+	</Card>
+</CardGrid>

@@ -12,7 +12,3 @@ pip install v-agents
 ```
 
 Further documentation is available in the following sections:
-
-- [Basic Programming](./programming)
-- [Compose a Module](./compose-module)
-- [Example: Deep Research](./example-deep-research)
