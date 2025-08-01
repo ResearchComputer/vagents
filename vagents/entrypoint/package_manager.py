@@ -511,6 +511,7 @@ def run(
             markdown = Markdown(markdown_output)
             console.print(markdown)
         elif format == "rich":
+            # print(result)
             format_result_rich(result, package_name)
         elif format == "plain":
             typer.echo("✅ Package executed successfully!", color="green")

@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import importlib
 import subprocess
+import asyncio
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
@@ -183,16 +184,32 @@ class PackageExecutionContext:
             if inspect.isclass(target):
                 instance = target()
                 if hasattr(instance, "__call__"):
-                    return instance(*args, **kwargs)
+                    result = instance(*args, **kwargs)
                 else:
                     raise TypeError(f"Class {function_name} is not callable")
             elif inspect.isfunction(target):
-                return target(*args, **kwargs)
+                result = target(*args, **kwargs)
             else:
                 raise TypeError(f"{function_name} is neither a function nor a class")
 
-        except Exception as e:
+            # Handle async results - when running in a separate thread,
+            # we can safely use asyncio.run()
+            if inspect.iscoroutine(result):
+                try:
+                    # Try to get the current event loop
+                    loop = asyncio.get_running_loop()
+                    logger.warning(
+                        f"Package {self.config.name} returned a coroutine while already in an event loop. This should not happen when executed via asyncio.to_thread()."
+                    )
+                    # This shouldn't happen when using asyncio.to_thread(), but just in case
+                    raise RuntimeError("Cannot handle coroutine in this context")
+                except RuntimeError:
+                    # No event loop running, we can use asyncio.run()
+                    return asyncio.run(result)
 
+            return result
+
+        except Exception as e:
             logger.error(f"Error executing package {self.config.name}: {e}")
             raise
 
