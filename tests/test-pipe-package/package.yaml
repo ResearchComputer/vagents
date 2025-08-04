@@ -1,0 +1,20 @@
+arguments:
+- help: Enable verbose output
+  name: verbose
+  short: v
+  type: bool
+- help: Configuration file path
+  name: config
+  short: c
+  type: str
+author: Your Name
+dependencies: []
+description: 'A VAgents package: test-pipe-package'
+entry_point: test-pipe-package.main
+name: test-pipe-package
+python_version: '>=3.8'
+repository_url: https://github.com/yourusername/test-pipe-package.git
+tags:
+- vagents
+- package
+version: 1.0.0

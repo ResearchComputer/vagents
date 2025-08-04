@@ -30,7 +30,8 @@ console = Console()
 
 # Create the typer app for package manager commands
 app = typer.Typer(
-    help="VAgents Package Manager - Manage and execute code packages from git repositories"
+    help="VAgents Package Manager - Manage and execute code packages from git repositories",
+    context_settings={"allow_extra_args": True, "allow_interspersed_args": False},
 )
 
 
@@ -195,6 +196,20 @@ def create_package_template(name: str, output_dir: str = "."):
         "dependencies": [],
         "python_version": ">=3.8",
         "tags": ["vagents", "package"],
+        "arguments": [
+            {
+                "name": "verbose",
+                "type": "bool",
+                "help": "Enable verbose output",
+                "short": "v",
+            },
+            {
+                "name": "config",
+                "type": "str",
+                "help": "Configuration file path",
+                "short": "c",
+            },
+        ],
     }
 
     config_file = output_path / "package.yaml"
@@ -218,26 +233,71 @@ def create_package_template(name: str, output_dir: str = "."):
 This is the main module for the {name} package.
 """
 
-def main(*args, **kwargs):
+def main(verbose=False, config=None, input=None, stdin=None, **kwargs):
     """
     Main entry point for the {name} package
 
     Args:
-        *args: Positional arguments
-        **kwargs: Keyword arguments
+        verbose (bool): Enable verbose output
+        config (str): Configuration file path
+        input (str): Input content (from stdin when using pipes)
+        stdin (str): Standard input content (alias for input)
+        **kwargs: Additional keyword arguments
 
     Returns:
         dict: Result of the package execution
     """
-    return {{
-        "message": "Hello from {name} package!",
-        "args": args,
-        "kwargs": kwargs
+    # Handle stdin input (input and stdin are aliases)
+    content = input or stdin
+
+    result = {{
+        "message": f"Hello from {name} package!",
+        "verbose": verbose,
+        "config": config,
+        "has_input": content is not None,
+        "input_length": len(content) if content else 0,
+        "additional_args": kwargs
     }}
+
+    if verbose:
+        print(f"Verbose mode enabled for {name}")
+        if config:
+            print(f"Using config file: {{config}}")
+        if content:
+            print(f"Processing {{len(content)}} characters of input")
+            print(f"Input preview: {{repr(content[:100])}}")
+
+    # Process the input content if provided
+    if content:
+        result["processed_input"] = {{
+            "length": len(content),
+            "lines": len(content.splitlines()) if content else 0,
+            "words": len(content.split()) if content else 0,
+            "first_line": content.splitlines()[0] if content and content.splitlines() else None
+        }}
+
+        # Example processing based on content
+        if "error" in content.lower():
+            result["analysis"] = "Input contains error messages"
+        elif "success" in content.lower():
+            result["analysis"] = "Input contains success messages"
+        else:
+            result["analysis"] = "Input analyzed successfully"
+
+    return result
 
 
 if __name__ == "__main__":
-    result = main()
+    # Example: python {name}.py --verbose --config myconfig.json
+    # Example with pipe: echo "test data" | python {name}.py --verbose
+    import sys
+
+    # Check for stdin input when run directly
+    stdin_content = None
+    if not sys.stdin.isatty():
+        stdin_content = sys.stdin.read().strip()
+
+    result = main(verbose=True, input=stdin_content)
     print(result)
 '''
 
@@ -263,27 +323,100 @@ vagents pm install {config["repository_url"]}
 
 ## Usage
 
+### Command Line Interface
+
+```bash
+# Basic usage
+vagents pm run {name}
+
+# With verbose output
+vagents pm run {name} --verbose
+
+# With configuration file
+vagents pm run {name} --config myconfig.json
+
+# Combined options
+vagents pm run {name} --verbose --config myconfig.json
+
+# Using with pipes
+cat data.txt | vagents pm run {name} --verbose
+echo "process this" | vagents pm run {name}
+
+# Using vibe runner (simpler syntax)
+vibe run {name} --verbose
+cat results.json | vibe run {name} --config analysis.yaml
+```
+
+### Programmatic Usage
+
 ```python
 from vagents.manager.package import PackageManager
 
 pm = PackageManager()
-result = pm.execute_package("{name}")
+
+# Basic execution
+result = pm.execute_package("{name}", verbose=True, config="myconfig.json")
+print(result)
+
+# With input content
+content = "data to process"
+result = pm.execute_package("{name}", input=content, verbose=True)
 print(result)
 ```
 
+## Pipe Support
+
+This package supports reading from stdin when used with pipes:
+
+```bash
+# Process file content
+cat myfile.txt | vibe run {name}
+
+# Process command output
+ls -la | vibe run {name} --verbose
+
+# Chain with other commands
+curl -s https://api.example.com/data | vibe run {name} --config api.yaml
+```
+
+When using pipes, the stdin content is automatically passed to your package's main function as the `input` parameter (also available as `stdin`).
+
+## CLI Arguments
+
+This package supports the following command line arguments:
+
+- `--verbose, -v`: Enable verbose output (flag)
+- `--config, -c`: Configuration file path (string)
+
 ## Configuration
 
-See `package.yaml` for package configuration.
+See `package.yaml` for package configuration, including argument definitions.
 
 ## Development
 
 To modify this package:
 
 1. Clone the repository
-2. Make your changes
+2. Make your changes to the main function and argument definitions
 3. Update the version in `package.yaml`
 4. Commit and push changes
 5. Users can update with `vagents pm update {name}`
+
+### Adding New Arguments
+
+To add new CLI arguments, update the `arguments` section in `package.yaml`:
+
+```yaml
+arguments:
+  - name: "new_arg"
+    type: "str"
+    help: "Description of the new argument"
+    short: "n"
+    required: false
+    default: null
+```
+
+Then update your main function to accept the new parameter.
 """
 
     with open(output_path / "README.md", "w") as f:
@@ -472,8 +605,185 @@ def search(
         raise typer.Exit(1)
 
 
-@app.command()
+@app.command(
+    context_settings={"allow_extra_args": True, "allow_interspersed_args": False}
+)
 def run(
+    ctx: typer.Context,
+    package_name: str = typer.Argument(..., help="Name of the package to execute"),
+):
+    """Execute a package with its defined CLI arguments.
+
+    This command dynamically parses arguments based on the package's argument definition.
+    Use 'vagents pm help-package <name>' to see available arguments for a package.
+
+    Examples:
+        vagents pm run code-review --history 2 --verbose
+        vagents pm run analyzer --config config.json --output results.txt
+    """
+    try:
+        # Import here to avoid circular imports
+        import argparse
+
+        pm = PackageManager()
+        package_info = pm.get_package_info(package_name)
+
+        if not package_info:
+            typer.echo(f"❌ Package '{package_name}' not found", color="red")
+            raise typer.Exit(1)
+
+        # Get remaining arguments that weren't consumed by typer
+        remaining_args = ctx.args
+
+        # Create argument parser for this package
+        parser = argparse.ArgumentParser(
+            prog=f"vagents pm run {package_name}",
+            description=package_info.get(
+                "description", f"Execute {package_name} package"
+            ),
+            add_help=False,  # We'll handle help display ourselves
+        )
+
+        # Add format option
+        parser.add_argument(
+            "--format",
+            "-f",
+            choices=["rich", "plain", "json", "markdown"],
+            default="rich",
+            help="Output format (default: rich)",
+        )
+
+        # Add package-specific arguments
+        arguments = package_info.get("arguments", [])
+        for arg_def in arguments:
+            name = arg_def.get("name")
+            if not name:
+                continue
+
+            arg_type = arg_def.get("type", "str")
+            help_text = arg_def.get("help", "")
+            default = arg_def.get("default")
+            required = arg_def.get("required", False)
+            choices = arg_def.get("choices", [])
+            short = arg_def.get("short")
+
+            # Build argument names
+            arg_names = [f"--{name}"]
+            if short:
+                arg_names.append(f"-{short}")
+
+            # Build kwargs for add_argument
+            kwargs = {
+                "help": help_text,
+                "default": default,
+            }
+
+            # Handle different argument types
+            if arg_type == "bool":
+                kwargs["action"] = "store_true"
+            elif arg_type == "int":
+                kwargs["type"] = int
+            elif arg_type == "float":
+                kwargs["type"] = float
+            elif arg_type == "list":
+                kwargs["nargs"] = "*"
+            else:  # str
+                kwargs["type"] = str
+
+            if choices:
+                kwargs["choices"] = choices
+
+            if required and arg_type != "bool":
+                kwargs["required"] = True
+
+            parser.add_argument(*arg_names, **kwargs)
+
+        # Parse the remaining arguments
+        try:
+            if "--help" in remaining_args or "-h" in remaining_args:
+                parser.print_help()
+                raise typer.Exit(0)
+
+            parsed_args = parser.parse_args(remaining_args)
+        except SystemExit as e:
+            if e.code == 0:
+                raise typer.Exit(0)
+            else:
+                typer.echo(
+                    f"❌ Invalid arguments for package {package_name}", color="red"
+                )
+                parser.print_help()
+                raise typer.Exit(1)
+
+        # Extract format and remove it from package args
+        format_type = parsed_args.format
+        delattr(parsed_args, "format")
+
+        # Convert to dict and remove None values
+        package_kwargs = {k: v for k, v in vars(parsed_args).items() if v is not None}
+
+        # Execute package
+        result = pm.execute_package(package_name, **package_kwargs)
+
+        # Display results based on format
+        if format_type == "json":
+            typer.echo(json.dumps(result, indent=2, default=str))
+        elif format_type == "markdown":
+            markdown_output = format_result_markdown(result, package_name)
+            markdown = Markdown(markdown_output)
+            console.print(markdown)
+        elif format_type == "rich":
+            format_result_rich(result, package_name)
+        elif format_type == "plain":
+            typer.echo("✅ Package executed successfully!", color="green")
+            typer.echo(f"\n📋 Execution Result for '{package_name}':")
+            typer.echo("-" * 50)
+            if isinstance(result, dict) or isinstance(result, list):
+                typer.echo(json.dumps(result, indent=2, default=str))
+            else:
+                typer.echo(str(result))
+
+    except ValueError as e:
+        typer.echo(f"❌ Error: {e}", color="red")
+        raise typer.Exit(1)
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        typer.echo(f"❌ Error executing package: {e}", color="red")
+        raise typer.Exit(1)
+
+        # Display results based on format
+        if format_type == "json":
+            typer.echo(json.dumps(result, indent=2, default=str))
+        elif format_type == "markdown":
+            markdown_output = format_result_markdown(result, package_name)
+            markdown = Markdown(markdown_output)
+            console.print(markdown)
+        elif format_type == "rich":
+            format_result_rich(result, package_name)
+        elif format_type == "plain":
+            typer.echo("✅ Package executed successfully!", color="green")
+            typer.echo(f"\n📋 Execution Result for '{package_name}':")
+            typer.echo("-" * 50)
+            if isinstance(result, dict) or isinstance(result, list):
+                typer.echo(json.dumps(result, indent=2, default=str))
+            else:
+                typer.echo(str(result))
+
+    except ValueError as e:
+        typer.echo(f"❌ Package not found: {e}", color="red")
+        raise typer.Exit(1)
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        typer.echo(f"❌ Error executing package: {e}", color="red")
+        raise typer.Exit(1)
+
+
+@app.command()
+def run_legacy(
     package_name: str = typer.Argument(..., help="Name of the package to execute"),
     args: Optional[List[str]] = typer.Option(
         None, "--args", help="Arguments to pass to the package"
@@ -485,7 +795,7 @@ def run(
         "rich", "--format", "-f", help="Output format: rich, plain, json, markdown"
     ),
 ):
-    """Execute a package with optional arguments and display results."""
+    """Execute a package with legacy argument parsing (for backward compatibility)."""
     try:
         pm = PackageManager()
 
@@ -511,7 +821,6 @@ def run(
             markdown = Markdown(markdown_output)
             console.print(markdown)
         elif format == "rich":
-            # print(result)
             format_result_rich(result, package_name)
         elif format == "plain":
             typer.echo("✅ Package executed successfully!", color="green")
@@ -536,6 +845,91 @@ def run(
 
         traceback.print_exc()
         typer.echo(f"❌ Error executing package: {e}", color="red")
+        raise typer.Exit(1)
+
+
+@app.command()
+def help_package(
+    package_name: str = typer.Argument(..., help="Name of the package to show help for")
+):
+    """Show help for a specific package including its CLI arguments."""
+    try:
+        pm = PackageManager()
+        package_info = pm.get_package_info(package_name)
+
+        if not package_info:
+            typer.echo(f"❌ Package '{package_name}' not found", color="red")
+            raise typer.Exit(1)
+
+        # Display package information
+        typer.echo(f"\n📦 Package: {package_name}")
+        typer.echo(
+            f"📋 Description: {package_info.get('description', 'No description')}"
+        )
+        typer.echo(f"👤 Author: {package_info.get('author', 'Unknown')}")
+        typer.echo(f"🏷️  Version: {package_info.get('version', 'Unknown')}")
+
+        arguments = package_info.get("arguments", [])
+        if arguments:
+            typer.echo(f"\n🔧 Available Arguments:")
+            typer.echo("-" * 50)
+
+            for arg in arguments:
+                arg_name = arg.get("name", "unnamed")
+                arg_type = arg.get("type", "str")
+                arg_help = arg.get("help", "No description")
+                arg_short = arg.get("short", "")
+                arg_required = arg.get("required", False)
+                arg_default = arg.get("default")
+
+                # Format argument display
+                arg_display = f"--{arg_name}"
+                if arg_short:
+                    arg_display += f", -{arg_short}"
+
+                if arg_type != "bool":
+                    arg_display += f" <{arg_type}>"
+
+                typer.echo(f"  {arg_display}")
+                typer.echo(f"    {arg_help}")
+
+                if arg_required:
+                    typer.echo("    (Required)")
+                elif arg_default is not None:
+                    typer.echo(f"    (Default: {arg_default})")
+
+                typer.echo("")  # Empty line for spacing
+
+        else:
+            typer.echo(f"\n📝 This package does not define any CLI arguments.")
+
+        # Show usage examples
+        typer.echo(f"\n💡 Usage Examples:")
+        typer.echo(f"  vagents pm run {package_name}")
+
+        if arguments:
+            # Generate example with some arguments
+            example_args = []
+            for arg in arguments[:2]:  # Show first 2 arguments as example
+                arg_name = arg.get("name")
+                arg_type = arg.get("type", "str")
+                if arg_type == "bool":
+                    example_args.append(f"--{arg_name}")
+                else:
+                    example_value = (
+                        "value"
+                        if arg_type == "str"
+                        else "123"
+                        if arg_type == "int"
+                        else "1.5"
+                    )
+                    example_args.append(f"--{arg_name} {example_value}")
+
+            if example_args:
+                typer.echo(f"  vagents pm run {package_name} {' '.join(example_args)}")
+
+    except Exception as e:
+        typer.echo(f"❌ Error: {e}", color="red")
         raise typer.Exit(1)
 
 

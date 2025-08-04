@@ -5,7 +5,6 @@ import shutil
 import tempfile
 import importlib
 import subprocess
-import asyncio
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
@@ -27,6 +26,23 @@ logger.setLevel(os.environ.get("LOGLEVEL", "WARN").upper())
 
 
 @dataclass
+class PackageArgument:
+    """Definition of a package command line argument"""
+
+    name: str
+    type: str = "str"  # str, int, float, bool, list
+    help: str = ""
+    default: Any = None
+    required: bool = False
+    choices: List[str] = None
+    short: str = None  # Short form like -h
+
+    def __post_init__(self):
+        if self.choices is None:
+            self.choices = []
+
+
+@dataclass
 class PackageConfig:
     """Configuration for a package"""
 
@@ -39,12 +55,15 @@ class PackageConfig:
     dependencies: List[str] = None
     python_version: str = ">=3.8"
     tags: List[str] = None
+    arguments: List[PackageArgument] = None  # CLI arguments this package accepts
 
     def __post_init__(self):
         if self.dependencies is None:
             self.dependencies = []
         if self.tags is None:
             self.tags = []
+        if self.arguments is None:
+            self.arguments = []
 
 
 class PackageMetadata(BaseModel):
@@ -79,6 +98,8 @@ class PackageMetadata(BaseModel):
             self.python_version = ">=3.8"
         if not hasattr(self, "tags"):
             self.tags = []
+        if not hasattr(self, "arguments"):
+            self.arguments = []
 
         # Validate repository URL
         parsed = urlparse(self.repository_url)
@@ -106,6 +127,9 @@ class PackageMetadata(BaseModel):
         default=">=3.8", description="Python version requirement"
     )
     tags: List[str] = PydanticField(default=[], description="Package tags")
+    arguments: List[Dict] = PydanticField(
+        default=[], description="CLI arguments definition"
+    )
 
     @field_validator("repository_url")
     @classmethod
@@ -125,6 +149,91 @@ class PackageMetadata(BaseModel):
                 "entry_point must be in format 'module.function' or 'module.Class'"
             )
         return v
+
+
+class PackageArgumentParser:
+    """Parser for package-specific command line arguments"""
+
+    def __init__(self, config: PackageConfig):
+        self.config = config
+        self.arguments = self._parse_arguments_from_config()
+
+    def _parse_arguments_from_config(self) -> List[PackageArgument]:
+        """Convert configuration arguments to PackageArgument objects"""
+        arguments = []
+
+        for arg_def in self.config.arguments:
+            if isinstance(arg_def, dict):
+                # Convert dict to PackageArgument
+                arg = PackageArgument(
+                    name=arg_def.get("name", ""),
+                    type=arg_def.get("type", "str"),
+                    help=arg_def.get("help", ""),
+                    default=arg_def.get("default"),
+                    required=arg_def.get("required", False),
+                    choices=arg_def.get("choices", []),
+                    short=arg_def.get("short"),
+                )
+                arguments.append(arg)
+            elif isinstance(arg_def, PackageArgument):
+                arguments.append(arg_def)
+
+        return arguments
+
+    def parse_args(self, args: List[str]) -> Dict[str, Any]:
+        """Parse command line arguments based on package argument definitions
+
+        Args:
+            args: List of command line arguments (e.g., ['--history', '2'])
+
+        Returns:
+            Dict of parsed arguments
+        """
+        import argparse
+
+        parser = argparse.ArgumentParser(
+            prog=f"vagents run {self.config.name}",
+            description=self.config.description,
+            add_help=False,  # We'll handle help ourselves
+        )
+
+        # Add package-specific arguments
+        for arg in self.arguments:
+            kwargs = {
+                "help": arg.help,
+                "default": arg.default,
+                "required": arg.required,
+            }
+
+            # Handle different argument types
+            if arg.type == "bool":
+                kwargs["action"] = "store_true"
+            elif arg.type == "int":
+                kwargs["type"] = int
+            elif arg.type == "float":
+                kwargs["type"] = float
+            elif arg.type == "list":
+                kwargs["nargs"] = "*"
+            elif arg.type == "str":
+                kwargs["type"] = str
+
+            if arg.choices:
+                kwargs["choices"] = arg.choices
+
+            # Add argument with both long and short forms
+            arg_names = [f"--{arg.name}"]
+            if arg.short:
+                arg_names.append(f"-{arg.short}")
+
+            parser.add_argument(*arg_names, **kwargs)
+
+        # Parse the arguments
+        try:
+            parsed_args = parser.parse_args(args)
+            return vars(parsed_args)
+        except SystemExit:
+            # argparse calls sys.exit on error, we want to handle this gracefully
+            raise ValueError(f"Invalid arguments for package {self.config.name}")
 
 
 class PackageExecutionContext:
@@ -184,32 +293,16 @@ class PackageExecutionContext:
             if inspect.isclass(target):
                 instance = target()
                 if hasattr(instance, "__call__"):
-                    result = instance(*args, **kwargs)
+                    return instance(*args, **kwargs)
                 else:
                     raise TypeError(f"Class {function_name} is not callable")
             elif inspect.isfunction(target):
-                result = target(*args, **kwargs)
+                return target(*args, **kwargs)
             else:
                 raise TypeError(f"{function_name} is neither a function nor a class")
 
-            # Handle async results - when running in a separate thread,
-            # we can safely use asyncio.run()
-            if inspect.iscoroutine(result):
-                try:
-                    # Try to get the current event loop
-                    loop = asyncio.get_running_loop()
-                    logger.warning(
-                        f"Package {self.config.name} returned a coroutine while already in an event loop. This should not happen when executed via asyncio.to_thread()."
-                    )
-                    # This shouldn't happen when using asyncio.to_thread(), but just in case
-                    raise RuntimeError("Cannot handle coroutine in this context")
-                except RuntimeError:
-                    # No event loop running, we can use asyncio.run()
-                    return asyncio.run(result)
-
-            return result
-
         except Exception as e:
+
             logger.error(f"Error executing package {self.config.name}: {e}")
             raise
 
@@ -438,8 +531,17 @@ class PackageRegistry:
         """Register a package in the registry"""
         registry = self._load_registry()
 
+        # Convert PackageConfig to dict, handling PackageArgument objects
+        config_dict = asdict(config)
+        # Convert PackageArgument objects to dicts if they exist
+        if "arguments" in config_dict:
+            config_dict["arguments"] = [
+                asdict(arg) if hasattr(arg, "__dict__") else arg
+                for arg in config_dict["arguments"]
+            ]
+
         package_info = {
-            **asdict(config),
+            **config_dict,
             "installed_path": str(package_path),
             "install_time": str(datetime.datetime.now()),
             "commit_hash": commit_hash,
@@ -538,6 +640,10 @@ class PackageManager:
                 dependencies=metadata.dependencies,
                 python_version=metadata.python_version,
                 tags=metadata.tags,
+                arguments=[
+                    PackageArgument(**arg_def) if isinstance(arg_def, dict) else arg_def
+                    for arg_def in getattr(metadata, "arguments", [])
+                ],
             )
 
             # Validate entry point file exists
@@ -712,11 +818,62 @@ class PackageManager:
             dependencies=package_info.get("dependencies", []),
             python_version=package_info.get("python_version", ">=3.8"),
             tags=package_info.get("tags", []),
+            arguments=[
+                PackageArgument(**arg_def) if isinstance(arg_def, dict) else arg_def
+                for arg_def in package_info.get("arguments", [])
+            ],
         )
 
         # Execute in context
         with PackageExecutionContext(package_path, config) as ctx:
             return ctx.load_and_execute(*args, **kwargs)
+
+    def execute_package_with_cli_args(
+        self, package_name: str, cli_args: List[str]
+    ) -> Any:
+        """Execute a package with CLI arguments parsed according to package definition
+
+        Args:
+            package_name: Name of the package to execute
+            cli_args: List of CLI arguments (e.g., ['--history', '2', '--verbose'])
+
+        Returns:
+            Any: Result of the package function execution
+        """
+        logger.info(f"Executing package {package_name} with CLI args: {cli_args}")
+
+        package_info = self.registry.get_package_info(package_name)
+        if package_info is None:
+            raise ValueError(f"Package {package_name} not found")
+
+        package_path = Path(package_info["installed_path"])
+        if not package_path.exists():
+            raise ValueError(f"Package path {package_path} does not exist")
+
+        # Create package config from registry info
+        config = PackageConfig(
+            name=package_info["name"],
+            version=package_info["version"],
+            description=package_info["description"],
+            author=package_info["author"],
+            repository_url=package_info["repository_url"],
+            entry_point=package_info["entry_point"],
+            dependencies=package_info.get("dependencies", []),
+            python_version=package_info.get("python_version", ">=3.8"),
+            tags=package_info.get("tags", []),
+            arguments=[
+                PackageArgument(**arg_def) if isinstance(arg_def, dict) else arg_def
+                for arg_def in package_info.get("arguments", [])
+            ],
+        )
+
+        # Parse CLI arguments based on package configuration
+        arg_parser = PackageArgumentParser(config)
+        parsed_kwargs = arg_parser.parse_args(cli_args)
+
+        # Execute in context with parsed arguments
+        with PackageExecutionContext(package_path, config) as ctx:
+            return ctx.load_and_execute(**parsed_kwargs)
 
     def list_packages(self) -> Dict[str, Dict]:
         """List all installed packages"""

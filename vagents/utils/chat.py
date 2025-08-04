@@ -172,10 +172,9 @@ class ChatInterface:
             with toast_progress(f"Executing package: {package_name}") as progress:
                 progress.update("Loading package")
 
-                # Execute package in a separate thread to avoid event loop conflicts
-                # This allows packages that use asyncio.run() to work properly
-                result = await asyncio.to_thread(
-                    self.package_manager.execute_package, package_name, message=message
+                # Execute package
+                result = self.package_manager.execute_package(
+                    package_name, message=message
                 )
 
                 progress.update("Package executed successfully")
