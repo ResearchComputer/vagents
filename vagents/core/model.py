@@ -22,7 +22,9 @@ class LM:
     def __init__(
         self,
         name: str,
-        base_url: str = os.environ.get("VAGENTS_LM_BASE_URL", "http://localhost:8000"),
+        base_url: str = os.environ.get(
+            "VAGENTS_LM_BASE_URL", "https://ai.research.computer"
+        ),
         api_key: str = os.environ.get("VAGENTS_LM_API_KEY", "your-api-key-here"),
     ):
         self.name = name

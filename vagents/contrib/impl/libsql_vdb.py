@@ -1,3 +1,4 @@
+import os
 from typing import List
 from vagents.core import VectorDB, Field, Embedding
 
@@ -13,6 +14,10 @@ class LibSQLVDB(VectorDB):
     def __init__(self, conn_string: str):
         super().__init__()
         self.conn_string = conn_string
+        # get dir name from conn_string
+        dir_name = os.path.dirname(conn_string)
+        if not os.path.exists(dir_name):
+            os.makedirs(dir_name)
         self.connection = libsql.connect(self.conn_string)
 
     def _map_field_type(self, field: Field):

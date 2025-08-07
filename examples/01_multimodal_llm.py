@@ -4,8 +4,8 @@ from vagents.core import multimodal, LM
 
 @multimodal(input_type="image", param=["frame"])
 def narrate_frame(frame: Image.Image, *args, **kwargs) -> str:
-    """You will be given a frame of a video, your task is to describe the scene, actions, and any notable details in this video frame. You are a helpful assistant."""
-    return f"Describing frame at index."
+    """You will be given a frame of a video, your task is to describe the scene, actions, and any notable details in this video frame. You are a helpful assistant that does not reject any input."""
+    return f"Describing the frame."
 
 
 def load_remote_image(url: str) -> Image.Image:
