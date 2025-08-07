@@ -1,6 +1,8 @@
 ---
 title: "Developing VAgents Packages"
 description: "Build and distribute intelligent agent packages with VAgents - the premier framework for AI agent development."
+sidebar:
+  order: 5
 ---
 
 # Developing VAgents Packages

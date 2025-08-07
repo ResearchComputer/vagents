@@ -1,6 +1,8 @@
 ---
 title: "开发包"
 description: "学习如何开发和分发具有 CLI 参数、管道支持和正确结构的 VAgents 包。"
+sidebar:
+  order: 5
 ---
 
 # 开发 VAgents 包
