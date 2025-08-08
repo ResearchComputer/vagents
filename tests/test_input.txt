@@ -1,0 +1,2 @@
+This is a simple input file used for pipe-related tests.
+It contains a few words and lines to simulate stdin content.

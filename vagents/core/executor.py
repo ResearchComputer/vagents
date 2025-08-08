@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import atexit
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -16,6 +17,21 @@ def get_executor():
     if __GLOBAL_EXECUTOR is None:
         __GLOBAL_EXECUTOR = LMExecutor()
     return __GLOBAL_EXECUTOR
+
+
+def _shutdown_global_executor():
+    """Ensure the global executor is stopped at interpreter exit."""
+    global __GLOBAL_EXECUTOR
+    try:
+        if __GLOBAL_EXECUTOR is not None:
+            __GLOBAL_EXECUTOR.stop()
+    except Exception:
+        # Best-effort cleanup; ignore errors during interpreter shutdown
+        pass
+
+
+# Register shutdown hook
+atexit.register(_shutdown_global_executor)
 
 
 class LMExecutor:
@@ -108,8 +124,7 @@ class LMExecutor:
             try:
                 # Wait for a task with a timeout to allow checking for shutdown
                 priority_item = await asyncio.wait_for(
-                    self._waiting.get(),
-                    timeout=10.0,  # Add timeout to allow periodic health checks
+                    self._waiting.get(), timeout=10.0
                 )
                 priority, counter, task = priority_item
 
@@ -128,7 +143,7 @@ class LMExecutor:
 
                 self._running.put_nowait((priority, counter, task))
                 try:
-                    result = await task
+                    _ = await task
                     logger.debug(f"Task {task} completed successfully.")
                 except Exception as task_exception:
                     logger.warning(f"Task failed with exception: {task_exception}")
@@ -179,9 +194,20 @@ class LMExecutor:
                 logger.info("Executor task was cancelled")
                 break
             except Exception as e:
+                # Handle loop shutdown gracefully
+                msg = str(e)
+                if isinstance(e, RuntimeError) and (
+                    "Event loop is closed" in msg or "no running event loop" in msg
+                ):
+                    logger.info("Event loop closed; stopping LMExecutor loop")
+                    break
                 logger.error(f"Executor error: {e}", exc_info=True)
-                # Don't break the loop unless it's a critical error
-                await asyncio.sleep(1)  # Brief pause before retrying
+                # Don't break the loop unless it's a critical error; but guard sleep
+                try:
+                    await asyncio.sleep(1)  # Brief pause before retrying
+                except RuntimeError:
+                    # Loop is closing; exit gracefully
+                    break
 
         logger.info("LMExecutor stopped")
 

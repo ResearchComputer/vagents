@@ -506,8 +506,8 @@ def update(
         raise typer.Exit(1)
 
 
-@app.command()
-def list(
+@app.command(name="list")
+def list_cmd(
     format: str = typer.Option(
         "table", "--format", "-f", help="Output format: table, json"
     ),
