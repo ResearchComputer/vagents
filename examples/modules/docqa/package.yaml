@@ -1,0 +1,28 @@
+name: docqa
+version: 0.1.0
+description: Document question answering and summarization over markdown/PDF/stdin
+author: VAgents
+repository_url: https://example.com/vagents/docqa.git
+entry_point: docqa.DocQA
+dependencies: []
+python_version: ">=3.9"
+tags: [qa, documents, summarization]
+arguments:
+  - name: file
+    type: str
+    help: Path to file (.md/.txt/.pdf); if omitted, reads from stdin
+    short: f
+    required: false
+  - name: q
+    type: str
+    help: Question or instruction (e.g., summarize)
+    short: q
+    required: false
+  - name: model
+    type: str
+    help: Override model name
+    required: false
+  - name: max_chars
+    type: int
+    help: Maximum document characters to include
+    required: false

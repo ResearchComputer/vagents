@@ -148,6 +148,38 @@ arguments:
 
 ## VAgents Implementation Patterns
 
+### AgentModule + Protocols (recommended)
+
+Packages can expose an agentified entry point using `AgentModule` and the `AgentInput`/`AgentOutput` protocol. The package manager detects these automatically and will wrap plain dict outputs into `AgentOutput`.
+
+Class-based entry point:
+
+```python
+# my_agent_package.py
+from vagents.core import AgentModule, AgentInput, AgentOutput
+
+class MyAgent(AgentModule):
+    async def forward(self, input: AgentInput) -> AgentOutput:
+        # do work here
+        return AgentOutput(input_id=input.id, result={"echo": input.payload})
+```
+
+Function-based entry point:
+
+```python
+# my_agent_package.py
+from vagents.core import AgentInput, AgentOutput
+
+async def run(input: AgentInput) -> AgentOutput:
+    return AgentOutput(input_id=input.id, result={"echo": input.payload})
+```
+
+In your `package.yaml` set:
+
+```yaml
+entry_point: my_agent_package.MyAgent   # or my_agent_package.run
+```
+
 ### Basic VAgents Integration
 
 ```python

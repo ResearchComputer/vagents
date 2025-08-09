@@ -42,6 +42,7 @@ class LMExecutor:
         self._task_futures = {}
         self._executor_task: asyncio.Task | None = None
         self._task_counter = 0  # To ensure FIFO order for same priority
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._start_executor()
 
     def _start_executor(self):
@@ -50,6 +51,7 @@ class LMExecutor:
             try:
                 # Get the current event loop
                 loop = asyncio.get_running_loop()
+                self._loop = loop
                 self._executor_task = loop.create_task(self.run())
                 logger.debug("Executor task started successfully")
             except RuntimeError:
@@ -62,9 +64,47 @@ class LMExecutor:
                 logger.error(f"Failed to start executor: {e}")
                 self._executor_task = None
 
+    def _ensure_loop_bound(self):
+        """Reinitialize internal state if the running loop has changed.
+
+        pytest-asyncio often creates a new loop per test function. Asyncio queues
+        and tasks are tied to the loop they were created with. To safely support
+        multiple loops within a single process (tests), we detect loop changes
+        and rebind our queues/background task to the current loop.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop; nothing to do. We'll lazily start when one exists.
+            return
+
+        if self._loop is not None and self._loop is not loop:
+            # Different loop detected. Stop previous executor task and reinit queues.
+            try:
+                if self._executor_task and not self._executor_task.done():
+                    self._executor_task.cancel()
+            except Exception:
+                pass
+
+            # Cancel any pending futures to avoid leaking between loops
+            for task, future in list(self._task_futures.items()):
+                if not future.done():
+                    future.cancel()
+            self._task_futures.clear()
+
+            # Recreate loop-bound queues and counters
+            self._running = asyncio.PriorityQueue()
+            self._waiting = asyncio.PriorityQueue()
+            self._task_counter = 0
+
+            # Bind to the new loop and start background runner
+            self._loop = loop
+            self._executor_task = loop.create_task(self.run())
+
     def enqueue(self, task: asyncio.Task, priority: int = 10) -> asyncio.Future:
         """Enqueue a task for execution with the specified priority."""
-        # Ensure executor is running
+        # Ensure we are running and bound to the current loop
+        self._ensure_loop_bound()
         self._start_executor()
 
         if task.done():

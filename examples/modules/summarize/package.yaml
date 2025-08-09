@@ -1,0 +1,28 @@
+name: summarize
+version: 0.1.0
+description: Summarize a document from stdin or file (md/txt/pdf)
+author: VAgents
+repository_url: https://example.com/vagents/summarize.git
+entry_point: summarize.Summarize
+dependencies: []
+python_version: ">=3.9"
+tags: [summarization, documents]
+arguments:
+  - name: file
+    type: str
+    help: Path to file (.md/.txt/.pdf); if omitted, reads from stdin
+    short: f
+    required: false
+  - name: q
+    type: str
+    help: Summarization instruction
+    short: q
+    required: false
+  - name: model
+    type: str
+    help: Override model name
+    required: false
+  - name: max_chars
+    type: int
+    help: Maximum document characters to include
+    required: false

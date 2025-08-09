@@ -1,0 +1,18 @@
+name: code-review
+version: 0.1.0
+description: Analyze current git repo diffs and history for a comprehensive review
+author: VAgents
+repository_url: https://example.com/vagents/code-review.git
+entry_point: code_review.CodeReview
+dependencies: []
+python_version: ">=3.9"
+tags: [code-review, git]
+arguments:
+  - name: repo
+    type: str
+    help: "Path to the repository (default: current working directory)"
+    required: false
+  - name: model
+    type: str
+    help: "Override model name"
+    required: false

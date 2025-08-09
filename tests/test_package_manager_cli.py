@@ -1,6 +1,3 @@
-import json
-import os
-
 from typer.testing import CliRunner
 
 from vagents.entrypoint.package_manager import app as pm_app

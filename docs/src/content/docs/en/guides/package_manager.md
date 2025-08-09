@@ -18,6 +18,19 @@ The package manager enables you to:
 - **Create and share** your own packages using built-in templates
 - **Search and discover** available packages by name, description, and tags
 
+## How it Works
+
+At a high level, the manager:
+
+- Validates package structure by reading `package.yaml|yml|json` (or `vagents.yaml|yml`) and ensuring the entry file exists
+- Registers packages in a local registry (`~/.vagents/packages/registry.json`) with metadata and install path
+- Executes the configured `entry_point` from the installed package directory in a sandboxed context that temporarily augments `sys.path`
+- Supports two execution modes:
+  - Agent-aware: If the entry point is an `AgentModule` subclass or a function that accepts `AgentInput`, the manager constructs `AgentInput` from CLI args/stdin and coerces return values to `AgentOutput` when possible
+  - Legacy callable: If the entry point is a plain function/class, it is invoked with parsed args/kwargs; stdin is passed via common names (`input`/`stdin`/`content`) when available
+
+This enables seamless integration with `AgentModule` implementations while preserving compatibility with simpler callables.
+
 ## Installation
 
 The package manager comes bundled with VAgents. Once you have VAgents installed, you can use the `vibe` command:
@@ -465,6 +478,37 @@ except Exception as e:
 10. **Use appropriate tags** for discoverability
 
 ### Integration with VAgents
+## Searching and Discovering Packages
+
+Search locally registered packages by name, description, and tags:
+
+```bash
+vibe search --query analyzer
+vibe search --tags ai tools
+```
+
+Programmatic search:
+
+```python
+from vagents.manager.package import PackageManager
+
+pm = PackageManager()
+matches = pm.search_packages(query="analyzer", tags=["ai"])
+```
+
+## Agent-aware vs Legacy Execution
+
+To leverage protocol-aware execution, implement one of:
+
+- Class entry: subclass `vagents.core.AgentModule` and implement `async forward(input: AgentInput) -> AgentOutput|dict|Any`
+- Function entry: define a function that accepts an `AgentInput` parameter
+
+The manager will:
+
+- Construct `AgentInput` with payload from CLI args and piped stdin
+- Coerce plain dict results into `AgentOutput(result=...)` where applicable
+- Fall back to legacy invocation for simple callables, passing stdin as `input`/`stdin`/`content` when possible
+
 
 The package manager integrates seamlessly with the VAgents framework:
 

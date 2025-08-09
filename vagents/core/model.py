@@ -42,12 +42,53 @@ class LM:
         return self._executor.enqueue(task)
 
     async def invoke(self, func: Callable, *args, **kwargs) -> asyncio.Future:
-        messages = func(*args, **kwargs)
-        kwargs = {k: v for k, v in kwargs.items() if k in llm_allowed_kwargs}
-        return await self(messages=messages, **kwargs)
+        # Only pass positional args to the template/message builder to avoid
+        # leaking LLM invocation kwargs (like temperature) or unrelated kwargs
+        # into user-provided functions.
+        messages = func(*args)
+        lm_kwargs = {k: v for k, v in kwargs.items() if k in llm_allowed_kwargs}
+        return await self(messages=messages, **lm_kwargs)
 
     # -- Below are internal apis that are not meant to be used directly --
     async def _request(self, *args, **kwargs):
+        # Fast-path for tests/offline runs to avoid network calls
+        offline = os.environ.get("VAGENTS_LM_FAKE", "").lower() in {"1", "true", "yes"}
+        if offline:
+            messages = kwargs.get("messages") or []
+            try:
+                # Try to extract last user content for a deterministic fake response
+                last_user = next(
+                    (
+                        m
+                        for m in reversed(messages)
+                        if isinstance(m, dict) and m.get("role") == "user"
+                    ),
+                    None,
+                )
+                content = (
+                    last_user.get("content", "") if isinstance(last_user, dict) else ""
+                )
+                if isinstance(content, list):
+                    # For multimodal messages, concatenate text parts
+                    content = "\n".join(
+                        p.get("text", "")
+                        for p in content
+                        if isinstance(p, dict) and p.get("type") == "text"
+                    )
+                snippet = (content or "").strip()
+            except Exception:
+                snippet = ""
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": f"[FAKE:{self.name}] "
+                            + (snippet[:200] if snippet else "OK")
+                        }
+                    }
+                ]
+            }
+
         data = {"model": self.name, **kwargs}
         async with aiohttp.ClientSession() as session:
             async with session.post(

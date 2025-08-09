@@ -66,6 +66,11 @@ def main(verbose=False, **kw):
 
     pm = PackageManager(base_path=base)
     res = pm.execute_package("foo", verbose=True, x=1)
-    assert res["ok"] is True
-    assert res["verbose"] is True
-    assert res["x"] == 1
+    # res may be a plain dict (legacy) or AgentOutput (new modules)
+    if hasattr(res, "result"):
+        data = res.result or {}
+    else:
+        data = res
+    assert data["ok"] is True
+    assert data["verbose"] is True
+    assert data["x"] == 1

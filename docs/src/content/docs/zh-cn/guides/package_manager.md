@@ -18,6 +18,19 @@ VAgents 包管理器（`vibe`）是一个强大的工具，允许您直接从 gi
 - **创建和分享包** 使用内置模板
 - **搜索和发现可用的包** 通过名称、描述和标签
 
+## 工作原理
+
+整体流程如下：
+
+- 通过读取 `package.yaml|yml|json`（或 `vagents.yaml|yml`）验证包结构，并确保入口文件存在
+- 在本地注册表（`~/.vagents/packages/registry.json`）登记包的元信息与安装位置
+- 在隔离的执行上下文中从包目录加载并执行配置的 `entry_point`，期间临时修改 `sys.path`
+- 支持两类执行模式：
+  - 协议感知（Agent-aware）：若入口为 `AgentModule` 子类，或函数接受 `AgentInput`，管理器会从 CLI 参数/标准输入构造 `AgentInput`，并在可能时将返回值封装为 `AgentOutput`
+  - 传统可调用（Legacy）：若入口为普通函数/类，则按解析得到的参数调用；若检测到标准输入，则尝试以 `input`/`stdin`/`content` 名称传入
+
+这使得基于 `AgentModule` 的实现可以无缝运行，同时兼容更简单的可调用入口。
+
 ## 安装
 
 包管理器与 VAgents 捆绑在一起。一旦您安装了 VAgents，您就可以使用 `vibe` 命令：

@@ -41,4 +41,9 @@ markers = [
 ]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--cov=vagents/ --cov-report html --cov-report term --cache-clear --ignore-glob=*/__init__.py"
+addopts = "--cov=vagents/ --cov-report html --cov-report term --cache-clear --ignore-glob=*/__init__.py -m 'not api'"
+
+[tool.coverage.run]
+omit = [
+  "vagents/utils/chat.py",
+]

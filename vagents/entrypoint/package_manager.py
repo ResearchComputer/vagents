@@ -10,6 +10,7 @@ import sys
 import json
 from pathlib import Path
 from typing import List, Optional, Any, Dict
+import sys
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -698,6 +699,14 @@ def run(
 
             parser.add_argument(*arg_names, **kwargs)
 
+        # Attempt to read stdin if piped
+        stdin_input = None
+        try:
+            if not sys.stdin.isatty():
+                stdin_input = sys.stdin.read()
+        except Exception:
+            stdin_input = None
+
         # Parse the remaining arguments
         try:
             if "--help" in remaining_args or "-h" in remaining_args:
@@ -721,6 +730,15 @@ def run(
 
         # Convert to dict and remove None values
         package_kwargs = {k: v for k, v in vars(parsed_args).items() if v is not None}
+
+        # If we have stdin content and the package did not explicitly receive an input param, add it
+        if stdin_input:
+            if (
+                "input" not in package_kwargs
+                and "stdin" not in package_kwargs
+                and "content" not in package_kwargs
+            ):
+                package_kwargs["input"] = stdin_input
 
         # Execute package
         result = pm.execute_package(package_name, **package_kwargs)

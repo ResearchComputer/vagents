@@ -113,6 +113,38 @@ arguments:
 
 ## 实现模式
 
+### AgentModule + 协议（推荐）
+
+使用 `AgentModule` 搭配 `AgentInput`/`AgentOutput` 协议可以让包管理器进行“协议感知（Agent-aware）”的执行：它会自动把 CLI 参数与管道输入组装为 `AgentInput`，并在可行时把返回的字典封装为 `AgentOutput`。
+
+类入口示例：
+
+```python
+# my_agent_package.py
+from vagents.core import AgentModule, AgentInput, AgentOutput
+
+class MyAgent(AgentModule):
+    async def forward(self, input: AgentInput) -> AgentOutput:
+        # 你的逻辑
+        return AgentOutput(input_id=input.id, result={"echo": input.payload})
+```
+
+函数入口示例：
+
+```python
+# my_agent_package.py
+from vagents.core import AgentInput, AgentOutput
+
+async def run(input: AgentInput) -> AgentOutput:
+    return AgentOutput(input_id=input.id, result={"echo": input.payload})
+```
+
+在 `package.yaml` 中配置入口：
+
+```yaml
+entry_point: my_agent_package.MyAgent   # 或 my_agent_package.run
+```
+
 ### 基本实现
 
 ```python

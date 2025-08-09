@@ -7,6 +7,7 @@ from vagents.manager.package import PackageRegistry, PackageConfig
 
 
 def test_vibe_parse_and_execute(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("VAGENTS_LM_FAKE", "1")
     # Ensure default base path resolves under this tmp HOME
     monkeypatch.setenv("HOME", str(tmp_path))
     home = Path(tmp_path)

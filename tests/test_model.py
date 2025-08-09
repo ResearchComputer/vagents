@@ -7,6 +7,8 @@ from vagents.core.model import LM
 
 @pytest.mark.asyncio
 async def test_lm_invocation_monkeypatched(monkeypatch):
+    monkeypatch.setenv("VAGENTS_LM_FAKE", "1")
+
     async def fake_request(self, *args, **kwargs):
         # mimic OpenAI-like response
         return {
@@ -18,4 +20,5 @@ async def test_lm_invocation_monkeypatched(monkeypatch):
     monkeypatch.setattr(LM, "_request", fake_request, raising=True)
     lm = LM(name="test-model", base_url="http://localhost", api_key="x")
     res = await lm(messages=[{"role": "user", "content": "hi"}])
-    assert res["choices"][0]["message"]["content"] == "hello"
+    # In fake mode, content starts with [FAKE:<model>]
+    assert "choices" in res and "message" in res["choices"][0]

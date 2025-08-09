@@ -20,9 +20,19 @@ except ImportError:
     yaml = None
 
 import logging
+import asyncio
+import threading
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOGLEVEL", "WARN").upper())
+
+# Core agent/protocol imports
+try:
+    from vagents.core import AgentModule, AgentInput, AgentOutput  # type: ignore
+except Exception:
+    AgentModule = None  # type: ignore
+    AgentInput = None  # type: ignore
+    AgentOutput = None  # type: ignore
 
 
 @dataclass
@@ -44,7 +54,12 @@ class PackageArgument:
 
 @dataclass
 class PackageConfig:
-    """Configuration for a package"""
+    """Configuration for a package
+
+    For agent packages, the entry point SHOULD be either:
+    - A class deriving from `vagents.core.AgentModule` implementing `async forward(input: AgentInput) -> AgentOutput|dict|Any`
+    - A function accepting `(input: AgentInput)` and returning `AgentOutput|dict|Any` (sync or async)
+    """
 
     name: str
     version: str
@@ -264,7 +279,16 @@ class PackageExecutionContext:
                 del sys.modules[module_name]
 
     def load_and_execute(self, *args, **kwargs):
-        """Load the module and execute the entry point function"""
+        """Load the module and execute the entry point.
+
+        Enhanced behavior:
+        - If the entry point is an AgentModule subclass, it will be instantiated
+          and its async `forward` will be executed with a standard `AgentInput`.
+        - If the entry point is a function that accepts an `AgentInput`, it will
+          be invoked accordingly (awaited if coroutine) and the result coerced to
+          `AgentOutput` when possible.
+        - Otherwise, original behavior is preserved (callable with *args/**kwargs).
+        """
         try:
             module_name, function_name = self.config.entry_point.rsplit(".", 1)
 
@@ -289,17 +313,155 @@ class PackageExecutionContext:
 
             target = getattr(module, function_name)
 
+            # Prepare AgentInput if protocols are available
+            agent_input = None
+            if AgentInput is not None:
+                try:
+                    # Detect if caller intended stdin-like content
+                    payload = {**kwargs}
+                    # Normalize CLI-provided stdin to string content if present
+                    for k in ("input", "stdin", "content"):
+                        if k in payload and not isinstance(payload[k], (str, bytes)):
+                            try:
+                                payload[k] = str(payload[k])
+                            except Exception:
+                                payload[k] = ""
+                    agent_input = AgentInput(payload=payload)
+                except Exception:
+                    agent_input = None
+
+            def _coerce_output(value: Any) -> Any:
+                """Coerce raw result to AgentOutput if protocol is available."""
+                if AgentOutput is None:
+                    return value
+                if isinstance(value, AgentOutput):
+                    return value
+                # Wrap common structures into AgentOutput
+                input_id = getattr(agent_input, "id", None) if agent_input else None
+                if isinstance(value, dict):
+                    return AgentOutput(input_id=input_id, result=value)
+                # Fallback: wrap scalar/object under "value"
+                return AgentOutput(input_id=input_id, result={"value": value})
+
+            async def _maybe_await(coro_or_value: Any) -> Any:
+                if inspect.isawaitable(coro_or_value):
+                    return await coro_or_value
+                return coro_or_value
+
+            def _run_coro_blocking(coro) -> Any:
+                """Run an async coroutine to completion, even if a loop is running in this thread.
+
+                Falls back to running in a dedicated thread when needed to avoid 'event loop is running' errors.
+                """
+                try:
+                    return asyncio.run(coro)
+                except RuntimeError as e:
+                    if "event loop" not in str(e).lower():
+                        raise
+                    result_box: Dict[str, Any] = {}
+                    error_box: Dict[str, BaseException] = {}
+
+                    def _runner():
+                        try:
+                            result_box["result"] = asyncio.run(coro)
+                        except BaseException as exc:  # noqa: BLE001
+                            error_box["error"] = exc
+
+                    t = threading.Thread(target=_runner, daemon=True)
+                    t.start()
+                    t.join()
+                    if error_box:
+                        raise error_box["error"]
+                    return result_box.get("result")
+
             # Execute the function or instantiate and call the class
             if inspect.isclass(target):
                 instance = target()
+                # If the instance is an AgentModule, run its async forward with AgentInput
+                if AgentModule is not None and isinstance(instance, AgentModule):
+                    if agent_input is None:
+                        raise TypeError(
+                            "Agent protocol not available to construct AgentInput"
+                        )
+                    result = _run_coro_blocking(instance.forward(agent_input))
+                    return _coerce_output(result)
+
+                # Legacy: call class instance if callable
                 if hasattr(instance, "__call__"):
                     return instance(*args, **kwargs)
-                else:
-                    raise TypeError(f"Class {function_name} is not callable")
-            elif inspect.isfunction(target):
-                return target(*args, **kwargs)
-            else:
-                raise TypeError(f"{function_name} is neither a function nor a class")
+                raise TypeError(f"Class {function_name} is not callable")
+
+            if inspect.isfunction(target):
+                # Determine if function explicitly supports AgentInput
+                supports_param_name = None
+                if agent_input is not None:
+                    try:
+                        sig = inspect.signature(target)
+                        for p in sig.parameters.values():
+                            # Only accept explicit agent_input parameter name
+                            if p.name == "agent_input":
+                                supports_param_name = p.name
+                                break
+                            # Check type annotation name matches AgentInput
+                            ann = p.annotation
+                            if ann is not inspect._empty:
+                                if AgentInput is not None and ann is AgentInput:
+                                    supports_param_name = p.name
+                                    break
+                                if isinstance(ann, str) and (
+                                    ann.endswith("AgentInput") or "AgentInput" in ann
+                                ):
+                                    supports_param_name = p.name
+                                    break
+                    except Exception:
+                        supports_param_name = None
+
+                if supports_param_name:
+                    # Call with AgentInput via keyword
+                    call_kwargs = dict(kwargs)
+                    call_kwargs[supports_param_name] = agent_input
+                    out = target(*args, **call_kwargs)
+                    if inspect.isawaitable(out):
+                        out = _run_coro_blocking(out)
+                    return _coerce_output(out)
+
+                # Legacy behavior: call with *args/**kwargs and return raw result
+                # Legacy function signature. If it accepts 'input' or 'stdin', pass stdin text when available
+                try:
+                    sig = inspect.signature(target)
+                    params = sig.parameters
+                except Exception:
+                    params = {}
+                call_kwargs = dict(kwargs)
+                if agent_input is not None:
+                    stdin_text = None
+                    # Try to surface a string for stdin-like parameter
+                    for k in ("input", "stdin", "content"):
+                        v = call_kwargs.get(k)
+                        if isinstance(v, (str, bytes)):
+                            stdin_text = v.decode() if isinstance(v, bytes) else v
+                            break
+                    if stdin_text is None:
+                        # As a last resort try to use AgentInput.payload.get("input") etc.
+                        for k in ("input", "stdin", "content"):
+                            v = (agent_input.payload or {}).get(k)
+                            if isinstance(v, (str, bytes)):
+                                stdin_text = v.decode() if isinstance(v, bytes) else v
+                                break
+                    if stdin_text is not None:
+                        if "input" in params and "input" not in call_kwargs:
+                            call_kwargs["input"] = stdin_text
+                        elif "stdin" in params and "stdin" not in call_kwargs:
+                            call_kwargs["stdin"] = stdin_text
+                        elif "content" in params and "content" not in call_kwargs:
+                            call_kwargs["content"] = stdin_text
+
+                out = target(*args, **call_kwargs)
+                if inspect.isawaitable(out):
+                    out = _run_coro_blocking(out)
+                return out
+
+            raise TypeError(f"{function_name} is neither a function nor a class")
 
         except Exception as e:
 
