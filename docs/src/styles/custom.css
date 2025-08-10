@@ -1,0 +1,4 @@
+/* Slightly reduce global font size across the docs */
+html {
+  font-size: 14px;
+}

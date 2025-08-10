@@ -22,22 +22,25 @@ export default defineConfig({
 					label: '简体中文',
 					lang: 'zh-CN',
 				},
-				es: {
-					label: 'Español',
-					lang: 'es',
-				},
 			},
-			sidebar: [
-				{
-					label: 'Guides',
-					translations: {
-						'zh-cn': '指南',
-						'en': 'Guides',
-						'es': 'Guías',
-					},
-					autogenerate: { directory: 'guides' },
-				}
-			],
+            sidebar: [
+                {
+                    label: 'Getting Started',
+                    translations: {
+                        'zh-cn': '开始使用',
+                        'en': 'Getting Started',
+                    },
+                    autogenerate: { directory: 'getting-started' },
+                },
+                {
+                    label: 'Package Manager',
+                    translations: {
+                        'zh-cn': '包',
+                        'en': 'Packages',
+                    },
+                    autogenerate: { directory: 'package-manager' },
+                },
+            ],
 		}),
 	],
 });

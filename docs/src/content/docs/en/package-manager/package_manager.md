@@ -2,7 +2,7 @@
 title: "Package Manager"
 description: "Learn how to use the VAgents Package Manager to install, manage, and execute packages from git repositories."
 sidebar:
-  order: 4
+  order: 1
 ---
 
 # VAgents Package Manager

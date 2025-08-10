@@ -2,7 +2,7 @@
 title: "包管理器"
 description: "学习如何使用 VAgents 包管理器来安装、管理和执行来自 git 仓库的包。"
 sidebar:
-  order: 4
+  order: 1
 ---
 
 # VAgents 包管理器

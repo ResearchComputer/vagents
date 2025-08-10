@@ -1,0 +1,101 @@
+VAgents Programming Interface
+
+Core Concepts
+- AgentModule (vagents.core.module.AgentModule)
+  - Purpose: Async base class for building agent-like modules around an optional LM
+  - Implement: async forward(...)
+  - Invocation: calling an instance schedules forward and returns an awaitable Future via the internal executor
+  - Actions: use @agent_action on instance methods to auto-register actions, accessible via .actions (dict{name->callable})
+  - LM helpers: lm_call(*args, **kwargs) -> Future (proxy to self.lm(...)); await lm_invoke(func, *args, **kwargs) -> Any (proxy to await self.lm.invoke(...)). Raises if no LM attached
+
+- agent_action (decorator)
+  - Marks an instance method as an action; autodiscovered at initialization and added to AgentModule.actions
+
+Protocols (vagents.core.protocol)
+- AgentInput fields: id (auto), created_at (UTC), payload (dict), context (optional dict)
+- AgentOutput fields: id (auto), input_id (optional), created_at (UTC), result (optional dict), error (optional str)
+- Package manager behavior: when executing an AgentModule or a function that accepts AgentInput, CLI args and stdin are assembled into AgentInput; plain dict results may be wrapped into AgentOutput
+
+Package Configuration (package.yaml|yml|json or vagents.yaml|yml)
+- Required: name, version, description, author, repository_url (valid URL), entry_point ("module.function" or "module.Class")
+- Optional: dependencies (list[str]), python_version (default ">=3.8"), tags (list[str])
+- arguments (list of CLI arg specs): name, type (str|int|float|bool|list), help, default, required, choices, short (single-letter)
+- Entry file: <module>.py must exist at package root
+
+Runtime Installation Layout
+- Base directory: ~/.vagents/packages
+- Packages directory: ~/.vagents/packages/packages/
+- Registry file: ~/.vagents/packages/registry.json
+
+PackageManager (vagents.manager.package.PackageManager)
+- __init__(base_path: Optional[Path] = None): defaults to ~/.vagents/packages
+- install_package(repo_url_with_subdir: str, branch: str = "main", force: bool = False) -> bool
+  - Clones Git repo, optionally extracts subdirectory, validates config, copies into local store, records commit hash, registers in registry
+  - Accepts SSH/HTTPS URLs with optional "/subdir" suffix; preserves original URL (with subdir) in registry
+- uninstall_package(package_name: str) -> bool: removes files and unregisters
+- update_package(package_name: str, branch: str = "main") -> bool: reinstalls from recorded repository_url (with subdir)
+- execute_package(package_name: str, *args, **kwargs) -> Any
+  - Loads PackageConfig from registry, executes in PackageExecutionContext
+  - Agent-aware: if entry is AgentModule subclass or function accepting AgentInput, constructs AgentInput from kwargs/stdin and coerces result to AgentOutput when possible
+  - Legacy: otherwise calls callable with args/kwargs; passes stdin text via input|stdin|content when available
+- execute_package_with_cli_args(package_name: str, cli_args: List[str]) -> Any: parses args from PackageConfig.arguments and executes
+- list_packages() -> Dict[str, Dict]
+- get_package_info(package_name: str) -> Optional[Dict]
+- search_packages(query: str = None, tags: List[str] = None) -> Dict[str, Dict]
+
+Supporting Types
+- PackageConfig (dataclass): mirrors config including arguments: List[PackageArgument]
+- PackageArgument (dataclass): name, type, help, default, required, choices, short
+- PackageMetadata (pydantic-like): validates fields, sets defaults, enforces URL and entry_point format
+
+PackageArgumentParser
+- Builds argparse options from PackageConfig.arguments; returns kwargs dict
+
+PackageExecutionContext
+- Context manager: temporarily prepends package path to sys.path, imports module via importlib, executes entry_point
+- load_and_execute rules:
+  1) Resolve target from entry_point
+  2) If class:
+     - Instantiate; if AgentModule and AgentInput available, run instance.forward(AgentInput) (await/coro bridged) and coerce output
+     - Else if callable, call with *args/**kwargs
+  3) If function:
+     - If signature accepts AgentInput (by name or annotation), call with AgentInput and kwargs (await if coroutine), then coerce
+     - Else legacy: call with *args/**kwargs and try to pass stdin text to input|stdin|content
+  - Event loop: uses asyncio.run; if already running, executes coroutine in a background thread
+  - Coercion: wrap dict as AgentOutput(result=...); wrap scalars under {"value": ...} when AgentOutput is available
+
+GitRepository utilities
+- parse_repo_url_with_subdir(url) -> (clean_url, subdir?)
+- clone(url, target_path, branch) -> bool
+- extract_subdirectory(repo_path, subdir, target_path) -> bool
+- pull(repo_path, branch) -> bool
+- get_commit_hash(repo_path) -> Optional[str]
+
+CLI (vibe)
+- install <repo_url> [--branch <name>] [--force]
+- uninstall <package_name>
+- update <package_name> [--branch <name>]
+- list [--format table|json] [--verbose]
+- info <package_name>
+- search [--query <text>] [--tags <t1> <t2> ...]
+- run <package_name> [dynamic package-specific options] [--format rich|plain|json|markdown]
+  * Builds options dynamically from the package "arguments" schema
+  * Reads stdin when piped (injects as input/stdin/content if not provided)
+- run-legacy <package_name> [--args ...] [--kwargs '{...}'] [--format rich|plain|json|markdown]
+- help-package <package_name>
+- create-template <name> [--output-dir <dir>]
+- status
+
+Conventions
+- Prefer Agent-aware entry points for interoperability:
+  - Class: subclass AgentModule; implement async forward(input: AgentInput) -> AgentOutput|dict|Any
+  - Function: accept an AgentInput parameter
+- Legacy callable remains supported; pass stdin via input|stdin|content and return serializable structures for better formatting
+
+Examples (conceptual)
+- Minimal AgentModule: class ToyAgent(AgentModule); async forward(x: int) -> int; @agent_action async greet(name: str) -> str
+- Agent-aware function: async def run(input: AgentInput) -> AgentOutput
+
+Notes
+- Errors may be raised as exceptions or returned via dicts containing an "error" key depending on implementation
+- Set LOGLEVEL (e.g., DEBUG) to control logging verbosity for package operations

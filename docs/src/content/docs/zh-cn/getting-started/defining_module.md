@@ -2,7 +2,7 @@
 title: "定义模块"
 description: "构建 AgentModule，注册动作，并与 AgentInput/AgentOutput 协议集成。"
 sidebar:
-  order: 2
+  order: 4
 ---
 
 ## 什么是 AgentModule？

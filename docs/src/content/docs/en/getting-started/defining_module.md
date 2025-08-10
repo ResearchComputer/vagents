@@ -2,7 +2,7 @@
 title: "Defining a Module"
 description: "Build an AgentModule, register actions, and integrate with the AgentInput/AgentOutput protocols."
 sidebar:
-  order: 2
+  order: 4
 ---
 
 ## What is an AgentModule?
