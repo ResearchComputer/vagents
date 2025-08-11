@@ -1,3 +1,5 @@
+Please read this carefully if you are an LLM or code agent.
+
 VAgents Programming Interface
 
 Core Concepts
