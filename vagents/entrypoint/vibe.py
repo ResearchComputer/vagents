@@ -19,6 +19,7 @@ try:
         format_result_rich,
         format_result_markdown,
     )
+    from vagents.core import AgentOutput
     from rich.console import Console
     from rich.markdown import Markdown
     from rich.table import Table
@@ -26,6 +27,69 @@ except ImportError as e:
     print(f"Error: Could not import VAgents modules: {e}")
     print("Please ensure VAgents is properly installed.")
     sys.exit(1)
+
+
+HELP_FLAGS = {"-h", "--help"}
+
+
+def _print_global_help() -> None:
+    print("VAgents Package Runner")
+    print("Usage:")
+    print("  vibe run <package_name> [args...]")
+    print("  vibe help <package_name>")
+    print("  vibe list")
+    print("  vibe install [--force|-f] [--branch|-b <branch>] <package_path_or_url>")
+    print("  vibe remove <package_name>")
+    print("\nPipe Support:")
+    print("  cat file.txt | vibe run <package_name> [args...]")
+    print("  echo 'data' | vibe run <package_name> --stdin-as content")
+    print("\nExamples:")
+    print("  vibe list")
+    print("  vibe install ./my-package.json")
+    print("  vibe install https://example.com/package.json")
+    print("  vibe remove my-package")
+    print("  vibe run code-review --history 2 --verbose")
+    print("  cat results.txt | vibe run summarize")
+    print("  vibe help code-review")
+
+
+def _print_subcommand_help(command: str) -> None:
+    cmd = command.strip().lower()
+    if cmd == "install":
+        print(
+            "Usage: vibe install [--force|-f] [--branch|-b <branch>] <package_path_or_url>"
+        )
+        print("\nInstall a package from a local directory or a git repository URL.")
+        print("- Local directory: vibe install ./path/to/package_dir")
+        print(
+            "- Git repository:  vibe install https://github.com/user/repo.git[/subdir]"
+        )
+        print("\nOptions:")
+        print("  -f, --force        Force reinstall if package exists")
+        print(
+            "  -b, --branch BR    Git branch to use when installing from a repo (default: main)"
+        )
+        return
+    if cmd == "remove":
+        print("Usage: vibe remove <package_name>")
+        print("\nRemove an installed package by name.")
+        return
+    if cmd == "list":
+        print("Usage: vibe list")
+        print("\nList all installed packages.")
+        return
+    if cmd == "help":
+        print("Usage: vibe help <package_name>")
+        print("\nShow details and available arguments for a package.")
+        return
+    if cmd == "run":
+        print(
+            "Usage: vibe run [--format|-f <rich|plain|json|markdown>] <package_name> [package_args...]"
+        )
+        print("\nExecute a package. Use 'vibe help <package_name>' for its arguments.")
+        print("Tip: 'vibe run <package_name> -h' also shows package-specific help.")
+        return
+    _print_global_help()
 
 
 def list_packages():
@@ -64,29 +128,22 @@ def list_packages():
     print(f"🚀 Use 'vibe run <package_name>' to execute a package")
 
 
-def install_package(package_path: str):
+def install_package(package_path: str, branch: str = "main", force: bool = False):
     """Install a package from a git URL or local path"""
     pm = PackageManager()
 
     print(f"📦 Installing package from: {package_path}")
 
     try:
-        # Check if it's a local directory
-        if Path(package_path).exists() and Path(package_path).is_dir():
-            print(f"❌ Error: Local directory installation not directly supported")
-            print(f"💡 Tip: The package needs to be in a git repository.")
-            print(f"   Initialize git and push to a remote repository first:")
-            print(f"   cd {package_path}")
-            print(f"   git init")
-            print(f"   git add .")
-            print(f"   git commit -m 'Initial commit'")
-            print(f"   git remote add origin <your-repo-url>")
-            print(f"   git push -u origin main")
-            print(f"   Then install with: vibe install <your-repo-url>")
-            sys.exit(1)
+        # Check if it's a local directory; if so, install locally
+        if Path(package_path).expanduser().exists() and Path(package_path).is_dir():
+            print(f"📁 Detected local directory. Validating and installing locally...")
+            result = pm.install_local_package(package_path, force)
         else:
-            print(f"🌐 Installing from git repository: {package_path}")
-            result = pm.install_package(package_path)
+            print(
+                f"🌐 Installing from git repository: {package_path} (branch: {branch})"
+            )
+            result = pm.install_package(package_path, branch, force)
 
         if result:
             print(f"✅ Package installed successfully!")
@@ -102,6 +159,24 @@ def install_package(package_path: str):
                     print(f"👤 Author: {package_info.get('author', 'Unknown')}")
                     print(f"🏷️  Version: {package_info.get('version', 'Unknown')}")
                     break
+            else:
+                # If installed locally, repository_url may be file://...
+                for package_name, package_info in packages.items():
+                    repo = package_info.get("repository_url", "")
+                    if (
+                        repo.startswith("file://")
+                        and Path(repo.replace("file://", "")).resolve()
+                        == Path(package_path).resolve()
+                    ):
+                        print(
+                            f"📦 Package name: {package_info.get('name', package_name)}"
+                        )
+                        print(
+                            f"📋 Description: {package_info.get('description', 'No description')}"
+                        )
+                        print(f"👤 Author: {package_info.get('author', 'Unknown')}")
+                        print(f"🏷️  Version: {package_info.get('version', 'Unknown')}")
+                        break
         else:
             print("❌ Installation failed")
             sys.exit(1)
@@ -218,7 +293,7 @@ def show_package_help(package_name: str):
     )
 
 
-def parse_package_args(package_name: str, args: List[str]):
+def parse_package_args(package_name: str, args: List[str], format_type: str = "rich"):
     """Parse arguments for a specific package and execute it"""
     import argparse
 
@@ -237,6 +312,23 @@ def parse_package_args(package_name: str, args: List[str]):
         except Exception as e:
             print(f"⚠️  Warning: Could not read from stdin: {e}", file=sys.stderr)
 
+    # Extract optional global format from args (accept both --format and -f here for convenience)
+    effective_format = format_type
+    remaining_args: List[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("--format", "-f"):
+            if i + 1 >= len(args):
+                print("❌ Missing value for --format")
+                _print_subcommand_help("run")
+                sys.exit(1)
+            effective_format = args[i + 1]
+            i += 2
+            continue
+        remaining_args.append(a)
+        i += 1
+
     # Create argument parser
     parser = argparse.ArgumentParser(
         prog=f"vibe run {package_name}",
@@ -244,14 +336,7 @@ def parse_package_args(package_name: str, args: List[str]):
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    # Add format option
-    parser.add_argument(
-        "--format",
-        "-f",
-        choices=["rich", "plain", "json", "markdown"],
-        default="rich",
-        help="Output format (default: rich)",
-    )
+    # Note: output format is handled by the parent 'vibe run' command
 
     # Add stdin option to handle piped input
     if stdin_input:
@@ -309,16 +394,12 @@ def parse_package_args(package_name: str, args: List[str]):
 
     # Parse arguments
     try:
-        parsed_args = parser.parse_args(args)
+        parsed_args = parser.parse_args(remaining_args)
     except SystemExit as e:
         if e.code == 0:  # Help was displayed
             sys.exit(0)
         else:
             sys.exit(1)
-
-    # Extract format and remove it from package args
-    format_type = parsed_args.format
-    delattr(parsed_args, "format")
 
     # Handle stdin input
     stdin_param = None
@@ -356,20 +437,19 @@ def parse_package_args(package_name: str, args: List[str]):
         # Display results
         console = Console()
 
-        if format_type == "json":
+        if effective_format == "json":
             print(json.dumps(result, indent=2, default=str))
-        elif format_type == "markdown":
+        elif effective_format == "markdown":
             markdown_output = format_result_markdown(result, package_name)
             markdown = Markdown(markdown_output)
             console.print(markdown)
-        elif format_type == "rich":
+        elif effective_format == "rich":
             format_result_rich(result, package_name)
-        elif format_type == "plain":
-            print("✅ Package executed successfully!")
-            print(f"\n📋 Execution Result for '{package_name}':")
-            print("-" * 50)
+        elif effective_format == "plain":
             if isinstance(result, dict) or isinstance(result, list):
                 print(json.dumps(result, indent=2, default=str))
+            elif isinstance(result, AgentOutput):
+                print(result.result.get("content", ""))
             else:
                 print(str(result))
 
@@ -383,48 +463,146 @@ def parse_package_args(package_name: str, args: List[str]):
 
 def main():
     """Main entry point"""
-    if len(sys.argv) < 2:
-        print("VAgents Package Runner")
-        print("Usage:")
-        print("  vibe run <package_name> [args...]")
-        print("  vibe help <package_name>")
-        print("  vibe list")
-        print("  vibe install <package_path_or_url>")
-        print("  vibe remove <package_name>")
-        print("\nPipe Support:")
-        print("  cat file.txt | vibe run <package_name> [args...]")
-        print("  echo 'data' | vibe run <package_name> --stdin-as content")
-        print("\nExamples:")
-        print("  vibe list")
-        print("  vibe install ./my-package.json")
-        print("  vibe install https://example.com/package.json")
-        print("  vibe remove my-package")
-        print("  vibe run code-review --history 2 --verbose")
-        print("  cat results.txt | vibe run summarize")
-        print("  vibe help code-review")
-        sys.exit(1)
+    # Global help
+    if len(sys.argv) < 2 or sys.argv[1] in HELP_FLAGS:
+        _print_global_help()
+        sys.exit(0)
 
     command = sys.argv[1]
 
     if command == "list":
+        # Support: vibe list -h/--help
+        if any(arg in HELP_FLAGS for arg in sys.argv[2:]):
+            _print_subcommand_help("list")
+            sys.exit(0)
         list_packages()
-    elif command == "install" and len(sys.argv) >= 3:
-        package_path = sys.argv[2]
-        install_package(package_path)
-    elif command == "remove" and len(sys.argv) >= 3:
+        return
+
+    if command == "install":
+        # Parse options: --force/-f and --branch/-b before the path
+        args = sys.argv[2:]
+        if not args or any(arg in HELP_FLAGS for arg in args):
+            _print_subcommand_help("install")
+            sys.exit(0 if (args and any(arg in HELP_FLAGS for arg in args)) else 1)
+
+        force = False
+        branch = "main"
+        positional_paths: List[str] = []
+
+        i = 0
+        while i < len(args):
+            a = args[i]
+            if a in ("--force", "-f"):
+                force = True
+                i += 1
+                continue
+            if a in ("--branch", "-b"):
+                if i + 1 >= len(args):
+                    print("❌ Missing value for --branch")
+                    _print_subcommand_help("install")
+                    sys.exit(1)
+                branch = args[i + 1]
+                i += 2
+                continue
+            if a.startswith("-"):
+                print(f"❌ Unknown option: {a}")
+                _print_subcommand_help("install")
+                sys.exit(1)
+            # Non-flag positional argument => a path/url
+            positional_paths.append(a)
+            i += 1
+
+        if len(positional_paths) == 0:
+            print("❌ Missing <package_path_or_url>")
+            _print_subcommand_help("install")
+            sys.exit(1)
+        if len(positional_paths) > 1:
+            print("❌ Multiple <package_path_or_url> values provided")
+            _print_subcommand_help("install")
+            sys.exit(1)
+
+        package_path = positional_paths[0]
+
+        install_package(package_path, branch=branch, force=force)
+        return
+
+    if command == "remove":
+        if len(sys.argv) < 3 or any(arg in HELP_FLAGS for arg in sys.argv[2:]):
+            _print_subcommand_help("remove")
+            sys.exit(
+                0
+                if (
+                    len(sys.argv) >= 3
+                    and any(arg in HELP_FLAGS for arg in sys.argv[2:])
+                )
+                else 1
+            )
         package_name = sys.argv[2]
         remove_package(package_name)
-    elif command == "help" and len(sys.argv) >= 3:
+        return
+
+    if command == "help":
+        if len(sys.argv) < 3 or any(arg in HELP_FLAGS for arg in sys.argv[2:]):
+            _print_subcommand_help("help")
+            sys.exit(
+                0
+                if (
+                    len(sys.argv) >= 3
+                    and any(arg in HELP_FLAGS for arg in sys.argv[2:])
+                )
+                else 1
+            )
         package_name = sys.argv[2]
         show_package_help(package_name)
-    elif command == "run" and len(sys.argv) >= 3:
-        package_name = sys.argv[2]
-        package_args = sys.argv[3:]
-        parse_package_args(package_name, package_args)
-    else:
-        print("Invalid command. Use 'list', 'install', 'remove', 'run', or 'help'.")
-        print("Run 'vibe' without arguments to see usage information.")
-        sys.exit(1)
+        return
+
+    if command == "run":
+        # Support: vibe run -h
+        run_args = sys.argv[2:]
+        if not run_args or any(arg in HELP_FLAGS for arg in run_args):
+            _print_subcommand_help("run")
+            sys.exit(0 if run_args else 1)
+
+        # Accept global --format before the package name for clarity: vibe run --format json my-pkg
+        # This is now the ONLY supported way to set format; not after package name.
+        format_override = "rich"
+        remaining: List[str] = []
+        i = 0
+        while i < len(run_args):
+            a = run_args[i]
+            if a in ("--format", "-f"):
+                if i + 1 >= len(run_args):
+                    print("❌ Missing value for --format")
+                    _print_subcommand_help("run")
+                    sys.exit(1)
+                format_override = run_args[i + 1]
+                i += 2
+                continue
+            remaining.append(a)
+            i += 1
+
+        if not remaining:
+            print("❌ Missing <package_name>")
+            _print_subcommand_help("run")
+            sys.exit(1)
+
+        package_name = remaining[0]
+        package_args = remaining[1:]
+
+        # Disallow legacy placement of --format after the package name for clarity
+        if any(arg in ("--format", "-f") for arg in package_args):
+            print(
+                "❌ Place --format/-f before the package name: 'vibe run --format json <package>'"
+            )
+            _print_subcommand_help("run")
+            sys.exit(1)
+
+        parse_package_args(package_name, package_args, format_type=format_override)
+        return
+
+    print("Invalid command. Use 'list', 'install', 'remove', 'run', or 'help'.")
+    print("Run 'vibe' without arguments to see usage information.")
+    sys.exit(1)
 
 
 if __name__ == "__main__":

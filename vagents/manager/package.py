@@ -640,6 +640,11 @@ class GitRepository:
     def get_commit_hash(repo_path: Path) -> Optional[str]:
         """Get current commit hash"""
         try:
+            # If this is not a git repository, silently return None (common for local installs)
+            git_dir = repo_path / ".git"
+            if not git_dir.exists():
+                return None
+
             original_cwd = os.getcwd()
             os.chdir(repo_path)
 
@@ -647,11 +652,20 @@ class GitRepository:
                 ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
             )
             return result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            # Keep error logging for real git repos, but downgrade severity to warning
+            logger.warning(
+                f"Failed to get commit hash for {repo_path}: {e.stderr or e}"
+            )
+            return None
         except Exception as e:
-            logger.error(f"Error getting commit hash for {repo_path}: {e}")
+            logger.warning(f"Error getting commit hash for {repo_path}: {e}")
             return None
         finally:
-            os.chdir(original_cwd)
+            try:
+                os.chdir(original_cwd)
+            except Exception:
+                pass
 
 
 class PackageRegistry:
@@ -898,6 +912,65 @@ class PackageManager:
                 f"Successfully installed package {config.name} v{config.version}"
             )
             return True
+
+    def install_local_package(self, local_dir: str, force: bool = False) -> bool:
+        """Install a package from a local directory.
+
+        Args:
+            local_dir: Path to the local directory containing the package files
+            force: Force reinstall if package already exists
+
+        Returns:
+            bool: True if installation successful, False otherwise
+        """
+        try:
+            source_path = Path(local_dir).expanduser().resolve()
+            if not source_path.exists() or not source_path.is_dir():
+                logger.error(
+                    f"Local path does not exist or is not a directory: {source_path}"
+                )
+                return False
+
+            # Validate package structure from local directory
+            config = self._validate_package_structure(source_path)
+            if config is None:
+                return False
+
+            # Check if package already exists
+            if self.registry.is_package_installed(config.name) and not force:
+                logger.warning(
+                    f"Package {config.name} already installed. Use force=True to reinstall."
+                )
+                return False
+
+            # Create/replace installation directory
+            package_install_path = self.registry.packages_dir / config.name
+            if package_install_path.exists():
+                shutil.rmtree(package_install_path)
+
+            shutil.copytree(source_path, package_install_path)
+
+            # Try to capture commit hash if inside a git repo; otherwise None
+            commit_hash = GitRepository.get_commit_hash(source_path)
+
+            # Record a file:// URL for provenance
+            try:
+                config.repository_url = f"file://{str(source_path)}"
+            except Exception:
+                # Fallback: keep whatever was in the config
+                pass
+
+            # Register package
+            self.registry.register_package(config, package_install_path, commit_hash)
+
+            logger.info(
+                f"Successfully installed local package {config.name} v{config.version} from {source_path}"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"Error installing local package from {local_dir}: {e}")
+            return False
 
     def uninstall_package(self, package_name: str) -> bool:
         """Uninstall a package

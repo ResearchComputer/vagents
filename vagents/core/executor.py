@@ -55,9 +55,6 @@ class LMExecutor:
                 self._executor_task = loop.create_task(self.run())
                 logger.debug("Executor task started successfully")
             except RuntimeError:
-                logger.warning(
-                    "No event loop is running, executor will start when an event loop is available."
-                )
                 # No event loop is running, defer starting until later
                 self._executor_task = None
             except Exception as e:

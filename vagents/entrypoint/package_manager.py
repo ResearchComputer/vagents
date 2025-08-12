@@ -428,7 +428,9 @@ Then update your main function to accept the new parameter.
 
 @app.command()
 def install(
-    repo_url: str = typer.Argument(..., help="Git repository URL"),
+    repo_url: str = typer.Argument(
+        ..., help="Git repository URL or local directory path"
+    ),
     branch: str = typer.Option(
         "main", "--branch", "-b", help="Git branch (default: main)"
     ),
@@ -436,12 +438,17 @@ def install(
         False, "--force", "-f", help="Force reinstall if package exists"
     ),
 ):
-    """Install a package from a git repository."""
+    """Install a package from a git repository or local directory."""
     try:
         pm = PackageManager()
 
-        typer.echo(f"Installing package from {repo_url}...")
-        success = pm.install_package(repo_url, branch, force)
+        path = Path(repo_url).expanduser()
+        if path.exists() and path.is_dir():
+            typer.echo(f"Installing package from local directory {path}...")
+            success = pm.install_local_package(str(path), force)
+        else:
+            typer.echo(f"Installing package from {repo_url}...")
+            success = pm.install_package(repo_url, branch, force)
 
         if success:
             typer.echo(
@@ -753,7 +760,8 @@ def run(
         elif format_type == "rich":
             format_result_rich(result, package_name)
         elif format_type == "plain":
-            typer.echo("✅ Package executed successfully!", color="green")
+            # Provide a short success message before the raw/plain output
+            typer.echo("✅ Package executed successfully!")
             typer.echo(f"\n📋 Execution Result for '{package_name}':")
             typer.echo("-" * 50)
             if isinstance(result, dict) or isinstance(result, list):
