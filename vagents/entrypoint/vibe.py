@@ -31,6 +31,29 @@ except ImportError as e:
 
 HELP_FLAGS = {"-h", "--help"}
 
+# Default packages repository for bare name resolution
+DEFAULT_PACKAGES_REPO = "https://github.com/vagents-ai/packages"
+
+
+def _looks_like_url(value: str) -> bool:
+    return (
+        value.startswith("http://")
+        or value.startswith("https://")
+        or value.startswith("git@")
+    )
+
+
+def _looks_like_path(value: str) -> bool:
+    # Treat as path only if clearly specified as such
+    # Absolute or relative indicators or contains a path separator
+    return (
+        value in (".", "..")
+        or value.startswith("/")
+        or value.startswith("./")
+        or value.startswith("../")
+        or ("/" in value)
+    )
+
 
 def _print_global_help() -> None:
     print("VAgents Package Runner")
@@ -59,10 +82,15 @@ def _print_subcommand_help(command: str) -> None:
         print(
             "Usage: vibe install [--force|-f] [--branch|-b <branch>] <package_path_or_url>"
         )
-        print("\nInstall a package from a local directory or a git repository URL.")
+        print(
+            "\nInstall a package from a local directory, a git repository URL, or by bare name."
+        )
         print("- Local directory: vibe install ./path/to/package_dir")
         print(
             "- Git repository:  vibe install https://github.com/user/repo.git[/subdir]"
+        )
+        print(
+            f"- Bare name (resolved to default repo): vibe install code-review  => {DEFAULT_PACKAGES_REPO}/code-review"
         )
         print("\nOptions:")
         print("  -f, --force        Force reinstall if package exists")
@@ -135,15 +163,26 @@ def install_package(package_path: str, branch: str = "main", force: bool = False
     print(f"📦 Installing package from: {package_path}")
 
     try:
-        # Check if it's a local directory; if so, install locally
-        if Path(package_path).expanduser().exists() and Path(package_path).is_dir():
+        # Treat as local only if the argument clearly looks like a filesystem path
+        if (
+            _looks_like_path(package_path)
+            and Path(package_path).expanduser().exists()
+            and Path(package_path).is_dir()
+        ):
             print(f"📁 Detected local directory. Validating and installing locally...")
             result = pm.install_local_package(package_path, force)
         else:
+            # Resolve bare names to default packages repository subdirectory
+            resolved_spec = package_path
+            if not _looks_like_url(package_path):
+                resolved_spec = (
+                    f"{DEFAULT_PACKAGES_REPO.rstrip('/')}/{package_path.lstrip('/')}"
+                )
+                print(f"🔎 Resolved package name to: {resolved_spec}")
             print(
-                f"🌐 Installing from git repository: {package_path} (branch: {branch})"
+                f"🌐 Installing from git repository: {resolved_spec} (branch: {branch})"
             )
-            result = pm.install_package(package_path, branch, force)
+            result = pm.install_package(resolved_spec, branch, force)
 
         if result:
             print(f"✅ Package installed successfully!")
@@ -312,22 +351,46 @@ def parse_package_args(package_name: str, args: List[str], format_type: str = "r
         except Exception as e:
             print(f"⚠️  Warning: Could not read from stdin: {e}", file=sys.stderr)
 
-    # Extract optional global format from args (accept both --format and -f here for convenience)
+    # Output format is primarily handled by the parent 'vibe run' command. However,
+    # when this helper is invoked directly (e.g., in tests), support the long
+    # '--format' flag here as a convenience. Do NOT consume short '-f' to avoid
+    # conflicts with package short flags (e.g., '-f' as '--file').
     effective_format = format_type
-    remaining_args: List[str] = []
-    i = 0
-    while i < len(args):
-        a = args[i]
-        if a in ("--format", "-f"):
-            if i + 1 >= len(args):
-                print("❌ Missing value for --format")
-                _print_subcommand_help("run")
-                sys.exit(1)
-            effective_format = args[i + 1]
-            i += 2
-            continue
-        remaining_args.append(a)
-        i += 1
+    remaining_args: List[str] = list(args)
+
+    # Extract and remove any '--format' occurrences from remaining_args
+    # Supported values: rich | plain | json | markdown
+    try:
+        cleaned_args: List[str] = []
+        i = 0
+        while i < len(remaining_args):
+            token = remaining_args[i]
+            if token == "--format":
+                # Value should be the next token if present and not another flag
+                value = None
+                if i + 1 < len(remaining_args) and not remaining_args[i + 1].startswith(
+                    "-"
+                ):
+                    value = remaining_args[i + 1]
+                    i += 2
+                else:
+                    i += 1
+                if value in ("rich", "plain", "json", "markdown"):
+                    effective_format = value
+                continue  # skip adding '--format' and its value
+            if token.startswith("--format="):
+                value = token.split("=", 1)[1]
+                if value in ("rich", "plain", "json", "markdown"):
+                    effective_format = value
+                i += 1
+                continue  # skip adding this token
+            # Keep all other tokens (including any '-f' for the package itself)
+            cleaned_args.append(token)
+            i += 1
+        remaining_args = cleaned_args
+    except Exception:
+        # Best-effort: if anything goes wrong, fall back to original args
+        remaining_args = list(args)
 
     # Create argument parser
     parser = argparse.ArgumentParser(
@@ -440,11 +503,13 @@ def parse_package_args(package_name: str, args: List[str], format_type: str = "r
         if effective_format == "json":
             print(json.dumps(result, indent=2, default=str))
         elif effective_format == "markdown":
-            markdown_output = format_result_markdown(result, package_name)
+            markdown_output = format_result_markdown(
+                result.result["content"], package_name
+            )
             markdown = Markdown(markdown_output)
             console.print(markdown)
         elif effective_format == "rich":
-            format_result_rich(result, package_name)
+            format_result_rich(result.result["content"], package_name)
         elif effective_format == "plain":
             if isinstance(result, dict) or isinstance(result, list):
                 print(json.dumps(result, indent=2, default=str))
@@ -563,23 +628,19 @@ def main():
             _print_subcommand_help("run")
             sys.exit(0 if run_args else 1)
 
-        # Accept global --format before the package name for clarity: vibe run --format json my-pkg
-        # This is now the ONLY supported way to set format; not after package name.
+        # Accept global --format only BEFORE the package name for clarity:
+        #   vibe run --format json <package> [args...]
+        # Any '-f' appearing after the package name belongs to the package (e.g., '--file/-f').
         format_override = "rich"
-        remaining: List[str] = []
-        i = 0
-        while i < len(run_args):
-            a = run_args[i]
-            if a in ("--format", "-f"):
-                if i + 1 >= len(run_args):
-                    print("❌ Missing value for --format")
-                    _print_subcommand_help("run")
-                    sys.exit(1)
-                format_override = run_args[i + 1]
-                i += 2
-                continue
-            remaining.append(a)
-            i += 1
+        if run_args and run_args[0] in ("--format", "-f"):
+            if len(run_args) < 2:
+                print("❌ Missing value for --format")
+                _print_subcommand_help("run")
+                sys.exit(1)
+            format_override = run_args[1]
+            remaining: List[str] = run_args[2:]
+        else:
+            remaining = run_args
 
         if not remaining:
             print("❌ Missing <package_name>")
@@ -589,8 +650,9 @@ def main():
         package_name = remaining[0]
         package_args = remaining[1:]
 
-        # Disallow legacy placement of --format after the package name for clarity
-        if any(arg in ("--format", "-f") for arg in package_args):
+        # Disallow legacy placement of --format (long form) after the package name for clarity
+        # Allow short '-f' to be used by packages (commonly as '--file').
+        if any(arg == "--format" for arg in package_args):
             print(
                 "❌ Place --format/-f before the package name: 'vibe run --format json <package>'"
             )

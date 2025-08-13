@@ -158,13 +158,15 @@ def run_package_with_dynamic_cli(package_name: str, args: List[str] = None):
         elif format_type == "markdown":
             from vagents.entrypoint.package_manager import format_result_markdown
 
-            markdown_output = format_result_markdown(result, package_name)
+            markdown_output = format_result_markdown(
+                result.result["content"], package_name
+            )
             markdown = Markdown(markdown_output)
             console.print(markdown)
         elif format_type == "rich":
             from vagents.entrypoint.package_manager import format_result_rich
 
-            format_result_rich(result, package_name)
+            format_result_rich(result.result["content"], package_name)
         elif format_type == "plain":
             print("✅ Package executed successfully!")
             print(f"\n📋 Execution Result for '{package_name}':")

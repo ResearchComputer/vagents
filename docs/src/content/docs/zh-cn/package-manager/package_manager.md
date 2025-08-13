@@ -55,6 +55,12 @@ vibe --help
 vibe install https://github.com/username/my-package.git
 ```
 
+使用裸包名从默认仓库安装（自动解析到官方包仓库子目录）：
+
+```bash
+vibe install code-review  # 解析为 https://github.com/vagents-ai/packages/code-review
+```
+
 从仓库内的子目录安装：
 
 ```bash

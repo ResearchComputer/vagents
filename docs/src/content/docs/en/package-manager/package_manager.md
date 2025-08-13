@@ -55,6 +55,12 @@ Install a package from a git repository:
 vibe install https://github.com/username/my-package.git
 ```
 
+Install a package by bare name from the default packages catalog:
+
+```bash
+vibe install code-review  # resolves to https://github.com/vagents-ai/packages/code-review
+```
+
 Install from a specific branch:
 
 ```bash

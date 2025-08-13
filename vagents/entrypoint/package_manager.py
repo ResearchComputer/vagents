@@ -29,6 +29,28 @@ except ImportError:
 # Create console for rich output
 console = Console()
 
+# Default packages repository for bare name resolution
+DEFAULT_PACKAGES_REPO = "https://github.com/vagents-ai/packages"
+
+
+def _looks_like_url(value: str) -> bool:
+    return (
+        value.startswith("http://")
+        or value.startswith("https://")
+        or value.startswith("git@")
+    )
+
+
+def _looks_like_path(value: str) -> bool:
+    return (
+        value in (".", "..")
+        or value.startswith("/")
+        or value.startswith("./")
+        or value.startswith("../")
+        or ("/" in value)
+    )
+
+
 # Create the typer app for package manager commands
 app = typer.Typer(
     help="VAgents Package Manager - Manage and execute code packages from git repositories",
@@ -438,24 +460,38 @@ def install(
         False, "--force", "-f", help="Force reinstall if package exists"
     ),
 ):
-    """Install a package from a git repository or local directory."""
+    """Install a package from a git repository, local directory, or bare name.
+
+    Examples:
+        vagents pm install https://github.com/user/repo.git
+        vagents pm install https://github.com/user/repo.git/path/to/subdir
+        vagents pm install ./local/package
+        vagents pm install code-review  # resolves to {DEFAULT_PACKAGES_REPO}/code-review
+    """
     try:
         pm = PackageManager()
 
         path = Path(repo_url).expanduser()
-        if path.exists() and path.is_dir():
+        if _looks_like_path(repo_url) and path.exists() and path.is_dir():
             typer.echo(f"Installing package from local directory {path}...")
             success = pm.install_local_package(str(path), force)
         else:
-            typer.echo(f"Installing package from {repo_url}...")
-            success = pm.install_package(repo_url, branch, force)
+            # Resolve bare name to default packages repo subdirectory
+            resolved_spec = repo_url
+            if not _looks_like_url(repo_url):
+                resolved_spec = (
+                    f"{DEFAULT_PACKAGES_REPO.rstrip('/')}/{repo_url.lstrip('/')}"
+                )
+                typer.echo(f"Resolved package name to: {resolved_spec}")
+            typer.echo(f"Installing package from {resolved_spec}...")
+            success = pm.install_package(resolved_spec, branch, force)
 
         if success:
             typer.echo(
-                f"✅ Successfully installed package from {repo_url}", color="green"
+                f"✅ Successfully installed package from {resolved_spec}", color="green"
             )
         else:
-            typer.echo(f"❌ Failed to install package from {repo_url}", color="red")
+            typer.echo(f"❌ Failed to install package from {resolved_spec}", color="red")
             raise typer.Exit(1)
 
     except Exception as e:
