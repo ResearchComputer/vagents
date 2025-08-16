@@ -887,7 +887,7 @@ class PackageManager:
             # Check if package already exists
             if self.registry.is_package_installed(config.name) and not force:
                 logger.warning(
-                    f"Package {config.name} already installed. Use force=True to reinstall."
+                    f"Package {config.name} already installed. Please remove it first to reinstall."
                 )
                 return False
 
@@ -947,7 +947,7 @@ class PackageManager:
             # Check if package already exists
             if self.registry.is_package_installed(config.name) and not force:
                 logger.warning(
-                    f"Package {config.name} already installed. Use force=True to reinstall."
+                    f"Package {config.name} already installed. Please remove it first to reinstall."
                 )
                 return False
 
