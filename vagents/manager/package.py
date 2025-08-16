@@ -899,6 +899,14 @@ class PackageManager:
             # Copy package files
             shutil.copytree(package_source_path, package_install_path)
 
+            # Install dependencies (requirements.txt preferred, else config list)
+            if not self._install_dependencies_for_package(package_install_path, config):
+                # Clean up on failure to keep state consistent
+                try:
+                    shutil.rmtree(package_install_path, ignore_errors=True)
+                finally:
+                    return False
+
             # Get commit hash from the original repo
             commit_hash = GitRepository.get_commit_hash(repo_path)
 
@@ -949,6 +957,14 @@ class PackageManager:
                 shutil.rmtree(package_install_path)
 
             shutil.copytree(source_path, package_install_path)
+
+            # Install dependencies (requirements.txt preferred, else config list)
+            if not self._install_dependencies_for_package(package_install_path, config):
+                # Clean up on failure
+                try:
+                    shutil.rmtree(package_install_path, ignore_errors=True)
+                finally:
+                    return False
 
             # Try to capture commit hash if inside a git repo; otherwise None
             commit_hash = GitRepository.get_commit_hash(source_path)
@@ -1155,6 +1171,78 @@ class PackageManager:
                 filtered[name] = info
 
         return filtered
+
+    # ---------------------------
+    # Dependency installation
+    # ---------------------------
+    def _install_dependencies_for_package(
+        self, package_install_path: Path, config: "PackageConfig"
+    ) -> bool:
+        """Install package dependencies using pip.
+
+        Preference order:
+        1) requirements.txt in the package root
+        2) dependencies list from package config
+
+        Behavior control via env vars:
+        - VAGENTS_PM_SKIP_DEPS=1 to skip installation
+        - VAGENTS_PM_PIP_EXTRA_ARGS to pass extra pip args (e.g. "--extra-index-url ...")
+        """
+        try:
+            if os.environ.get("VAGENTS_PM_SKIP_DEPS", "0") in ("1", "true", "True"):
+                logger.info(
+                    "Skipping dependency installation due to VAGENTS_PM_SKIP_DEPS"
+                )
+                return True
+
+            req_file = package_install_path / "requirements.txt"
+            deps: List[str] = list(config.dependencies or [])
+
+            if not req_file.exists() and not deps:
+                logger.info(
+                    f"No dependencies declared for package {config.name}; skipping install"
+                )
+                return True
+
+            pip_cmd = [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+            ]
+            extra = os.environ.get("VAGENTS_PM_PIP_EXTRA_ARGS")
+            if extra:
+                # naive split; users can quote as needed in env var
+                pip_cmd.extend(extra.split())
+
+            if req_file.exists():
+                logger.info(f"Installing dependencies from {req_file}...")
+                cmd = pip_cmd + ["-r", str(req_file)]
+            else:
+                logger.info(f"Installing dependencies for {config.name}: {deps}")
+                cmd = pip_cmd + deps
+
+            result = subprocess.run(
+                cmd,
+                cwd=str(package_install_path),
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                logger.error(
+                    "Failed to install dependencies for %s: %s\n%s",
+                    config.name,
+                    result.stderr.strip(),
+                    result.stdout.strip(),
+                )
+                return False
+
+            logger.info(f"Dependencies installed for {config.name}")
+            return True
+        except Exception as e:
+            logger.error(f"Error installing dependencies for {config.name}: {e}")
+            return False
 
 
 # Example usage and built-in packages

@@ -7,3 +7,5 @@ pytest-asyncio
 dstool
 seaborn
 pyrefly
+build
+twine
