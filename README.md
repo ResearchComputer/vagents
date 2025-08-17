@@ -1,9 +1,5 @@
 # Vagents
 
-## As a Package Manager
+vagents is a tool to help you implement agentic workflows and reuse them.
 
-## Getting Started
-
-```bash
-
-```
+[Documents (Work in progress)](https://vagents.research.computer/)
